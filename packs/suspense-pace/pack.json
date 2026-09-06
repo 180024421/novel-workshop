@@ -1,0 +1,11 @@
+{
+  "id": "suspense-pace",
+  "name": "悬疑节奏包",
+  "description": "风格 + 总纲提示偏悬疑",
+  "version": "1.0",
+  "files": {
+    "style": "style.md",
+    "outlineHint": "outline-hint.md",
+    "taboo": "taboo.md"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "id": "kuang-taboo",
+  "name": "爽文禁忌词包",
+  "description": "覆盖常见网文套话禁忌列表",
+  "version": "1.0",
+  "files": { "taboo": "taboo.md" }
+}

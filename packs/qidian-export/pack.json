@@ -1,0 +1,7 @@
+{
+  "id": "qidian-export",
+  "name": "起点导出提示",
+  "description": "写入导出说明到 prompts/export-qidian.md",
+  "version": "1.0",
+  "files": { "exportNote": "export-note.md" }
+}

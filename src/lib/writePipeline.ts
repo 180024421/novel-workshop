@@ -1,0 +1,485 @@
+import { backupChapter } from "./backup";
+import { loadCharactersMarkdown } from "./characters";
+import { chatCompletion } from "./gateway";
+import {
+  extractAndSaveHooks,
+  formatOpenHooksForPrompt,
+  loadHooksLedger,
+} from "./hooksLedger";
+import { formatKbForPrompt, inferKbTags, retrieveChunks } from "./kb";
+import { pickPrevChapterFile } from "./chapterNav";
+import { countTextWords } from "./projectProgress";
+import { beatsCheckPrompt, SYSTEM_WRITER } from "./prompts";
+import type { ProviderConfig } from "./providerPresets";
+import { withRetry } from "./retry";
+import { loadChapterBeatsText } from "./volumes";
+import {
+  beatsFixPrompt,
+  briefPrompt,
+  compressPrompt,
+  continuePrompt,
+  planPrompt,
+  polishPrompt,
+  scenePrompt,
+} from "./writePipelinePrompts";
+import {
+  DEFAULT_MAX_RATIO,
+  DEFAULT_MIN_RATIO,
+  estimateMaxTokens,
+  fallbackScenePlan,
+  isWholeChapterReplacementSane,
+  normalizePlanBudgets,
+  parseScenePlan,
+  reportHasMissingBeats,
+  wordGateStatus,
+} from "./writePipelineUtils";
+import type { AppSettings, KbChunk } from "../types";
+
+export type WritePipelinePhase =
+  | "brief"
+  | "plan"
+  | "scene"
+  | "wordgate"
+  | "beats_check"
+  | "polish"
+  | "report"
+  | "done"
+  | "error";
+
+export type WritePipelineProgress = {
+  phase: WritePipelinePhase;
+  label: string;
+  sceneIndex?: number;
+  sceneTotal?: number;
+  wordsNow?: number;
+  wordsTarget?: number;
+  bodySoFar?: string;
+};
+
+export type WritePipelineResult = {
+  body: string;
+  words: number;
+  targetWords: number;
+  ratio: number;
+  continueRounds: number;
+  beatsReport: string;
+  phaseLog: string[];
+};
+
+type PipelineSettings = AppSettings & {
+  writePipelineWordGate?: boolean;
+  writePipelineBeatsCheck?: boolean;
+  writePipelinePolish?: boolean;
+  writePipelineMinRatio?: number;
+  writePipelineMaxRatio?: number;
+};
+
+function appendBody(body: string, addition: string): string {
+  return [body.trimEnd(), addition.trim()].filter(Boolean).join("\n\n");
+}
+
+export async function runWritePipeline(opts: {
+  root: string;
+  join: (...p: string[]) => Promise<string>;
+  chapterId: string;
+  chapterTitle: string;
+  settings: AppSettings;
+  providers: ProviderConfig[];
+  targetWords: number;
+  signal?: AbortSignal;
+  onProgress?: (p: WritePipelineProgress) => void;
+  /** false 时跳过落盘（Studio 仅写编辑器时可由调用方落盘） */
+  persist?: boolean;
+  extractHooks?: boolean;
+}): Promise<WritePipelineResult> {
+  const w = window.moshu;
+  if (!w) throw new Error("桌面文件桥接不可用");
+
+  const settings = opts.settings as PipelineSettings;
+  const targetWords = Math.max(1, Math.round(opts.targetWords));
+  const minRatio = settings.writePipelineMinRatio ?? DEFAULT_MIN_RATIO;
+  const maxRatio = settings.writePipelineMaxRatio ?? DEFAULT_MAX_RATIO;
+  const phaseLog: string[] = [];
+  let body = "";
+  let streamedBody = "";
+  let replaceInFlight = false;
+  let beatsReport = "";
+  let continueRounds = 0;
+
+  const emit = (progress: WritePipelineProgress) => {
+    opts.onProgress?.(progress);
+  };
+  const logPhase = (phase: WritePipelinePhase, label: string) => {
+    phaseLog.push(label);
+    emit({
+      phase,
+      label,
+      wordsNow: body ? countTextWords(body) : undefined,
+      wordsTarget: targetWords,
+      bodySoFar: body || undefined,
+    });
+  };
+  const acceptReplacement = (step: string, oldBody: string, newBody: string) => {
+    if (isWholeChapterReplacementSane(oldBody, newBody)) return newBody;
+    const reason = !newBody.trim()
+      ? `${step}结果为空，已保留原正文`
+      : `${step}结果不足原文 80%，疑似截断，已保留原正文`;
+    phaseLog.push(reason);
+    return oldBody;
+  };
+  const call = (
+    prompt: string,
+    model: string,
+    maxTokens: number,
+    onDelta?: (delta: string, generated: string) => void
+  ) =>
+    withRetry(
+      () => {
+        let generated = "";
+        return chatCompletion(
+          opts.settings,
+          [
+            { role: "system", content: SYSTEM_WRITER },
+            { role: "user", content: prompt },
+          ],
+          {
+            providers: opts.providers,
+            model,
+            maxTokens,
+            signal: opts.signal,
+            onDelta: onDelta
+              ? (delta) => {
+                  generated += delta;
+                  onDelta(delta, generated);
+                }
+              : undefined,
+          }
+        );
+      },
+      { retries: 2, delayMs: 1500, signal: opts.signal }
+    );
+
+  try {
+    const loaded = await loadChapterBeatsText({
+      root: opts.root,
+      join: opts.join,
+      chapterId: opts.chapterId,
+    });
+    const beats = loaded.text;
+    if (!beats.trim()) {
+      throw new Error(`${opts.chapterId} 没有细纲（请先在「细纲」页按卷生成）`);
+    }
+
+    const notes = await w.readText(
+      await opts.join(opts.root, "ideas", `chapter-notes-${opts.chapterId}.md`)
+    );
+    const bible = await w.readText(await opts.join(opts.root, "bible", "world.md"));
+    const style = await w.readText(await opts.join(opts.root, "prompts", "style.md"));
+    const characters = await loadCharactersMarkdown(opts.root, opts.join);
+    const ledger = await loadHooksLedger(opts.root, opts.join);
+    const hooks = formatOpenHooksForPrompt(ledger);
+    const chapterFiles = await w.listDir(await opts.join(opts.root, "chapters"));
+    const prevFile = pickPrevChapterFile(chapterFiles, opts.chapterId);
+    const prevTail = prevFile ? await w.readText(prevFile.path) : "";
+    const kbIndex = await w.readJson<{ chunks: KbChunk[] }>(
+      await opts.join(opts.root, "kb", "index.json"),
+      { chunks: [] }
+    );
+    const tags = inferKbTags(`${opts.chapterTitle}\n${beats}`);
+    const kb = formatKbForPrompt(
+      retrieveChunks(
+        kbIndex.chunks || [],
+        `${opts.chapterTitle} ${beats.slice(0, 200)}`,
+        5,
+        tags
+      )
+    );
+    const beatsWithNotes = [
+      beats,
+      notes.trim() ? `## 作者本章补充\n${notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const bibleWithKb = [bible, kb].filter(Boolean).join("\n\n");
+    const chapterModel = opts.settings.routeChapter || "小说";
+    const checkModel = opts.settings.routeCheck || "复杂";
+
+    logPhase("brief", "① 生成章前简报");
+    let brief: string;
+    try {
+      brief = await call(
+        briefPrompt({
+          beats: beatsWithNotes,
+          bible: bibleWithKb,
+          characters,
+          style,
+          prevTail,
+          hooks,
+          targetWords,
+        }),
+        chapterModel,
+        estimateMaxTokens(1200)
+      );
+    } catch (error) {
+      if (opts.signal?.aborted) throw error;
+      brief = beatsWithNotes;
+      phaseLog.push("章前简报失败，已按细纲降级");
+    }
+
+    logPhase("plan", "② 规划场次字数");
+    let plan = fallbackScenePlan(beats, targetWords);
+    try {
+      const rawPlan = await call(
+        planPrompt({ brief, beats: beatsWithNotes, targetWords }),
+        chapterModel,
+        estimateMaxTokens(800)
+      );
+      const parsed = parseScenePlan(rawPlan);
+      if (parsed.length) plan = parsed;
+      else phaseLog.push("场次计划解析失败，已按细纲降级");
+    } catch (error) {
+      if (opts.signal?.aborted) throw error;
+      phaseLog.push("场次规划失败，已按细纲降级");
+    }
+    plan = normalizePlanBudgets(plan, targetWords);
+
+    for (let i = 0; i < plan.length; i++) {
+      const scene = plan[i];
+      const prefix = body;
+      const label = `③ 撰写场次 ${i + 1}/${plan.length}`;
+      phaseLog.push(label);
+      emit({
+        phase: "scene",
+        label,
+        sceneIndex: i + 1,
+        sceneTotal: plan.length,
+        wordsNow: countTextWords(body),
+        wordsTarget: targetWords,
+        bodySoFar: body,
+      });
+      const sceneText = await call(
+        scenePrompt({
+          brief,
+          scene,
+          sceneIndex: i + 1,
+          sceneTotal: plan.length,
+          prevSceneTail: body,
+          characters,
+          style,
+          isFirst: i === 0,
+          chapterTitle: opts.chapterTitle,
+          chapterId: opts.chapterId,
+        }),
+        chapterModel,
+        estimateMaxTokens(scene.budget),
+        (_delta, generated) => {
+          const bodySoFar = appendBody(prefix, generated);
+          streamedBody = bodySoFar;
+          emit({
+            phase: "scene",
+            label,
+            sceneIndex: i + 1,
+            sceneTotal: plan.length,
+            wordsNow: countTextWords(bodySoFar),
+            wordsTarget: targetWords,
+            bodySoFar,
+          });
+        }
+      );
+      body = appendBody(body, sceneText);
+      streamedBody = body;
+    }
+
+    if (settings.writePipelineWordGate !== false) {
+      logPhase("wordgate", "④ 检查正文长度");
+      let status = wordGateStatus(countTextWords(body), targetWords, minRatio, maxRatio);
+      while (status === "under" && continueRounds < 3) {
+        const wordsNow = countTextWords(body);
+        const gap = Math.max(0, targetWords - wordsNow);
+        const prefix = body;
+        continueRounds++;
+        const label = `④ 补写第 ${continueRounds}/3 轮`;
+        phaseLog.push(label);
+        const addition = await call(
+          continuePrompt({ body, wordsNow, targetWords, gap, brief }),
+          chapterModel,
+          estimateMaxTokens(gap),
+          (_delta, generated) => {
+            const bodySoFar = appendBody(prefix, generated);
+            streamedBody = bodySoFar;
+            emit({
+              phase: "wordgate",
+              label,
+              wordsNow: countTextWords(bodySoFar),
+              wordsTarget: targetWords,
+              bodySoFar,
+            });
+          }
+        );
+        body = appendBody(body, addition);
+        streamedBody = body;
+        status = wordGateStatus(countTextWords(body), targetWords, minRatio, maxRatio);
+      }
+      if (status === "over") {
+        const wordsNow = countTextWords(body);
+        const label = "④ 轻度压缩超长正文";
+        phaseLog.push(label);
+        const oldBody = body;
+        streamedBody = body;
+        replaceInFlight = true;
+        const newText = await call(
+          compressPrompt({ body, wordsNow, targetWords }),
+          chapterModel,
+          estimateMaxTokens(targetWords),
+          () => {
+            emit({
+              phase: "wordgate",
+              label,
+              wordsNow: countTextWords(oldBody),
+              wordsTarget: targetWords,
+              bodySoFar: oldBody,
+            });
+          }
+        );
+        replaceInFlight = false;
+        body = acceptReplacement("压缩", oldBody, newText);
+        streamedBody = body;
+      }
+    }
+
+    if (settings.writePipelineBeatsCheck !== false) {
+      logPhase("beats_check", "⑤ 对照细纲自检");
+      beatsReport = await call(
+        beatsCheckPrompt(beatsWithNotes, body),
+        checkModel,
+        estimateMaxTokens(1200)
+      );
+      for (let fixRound = 1; fixRound <= 2 && reportHasMissingBeats(beatsReport); fixRound++) {
+        const prefix = body;
+        const label = `⑤ 补齐细纲缺失 ${fixRound}/2`;
+        phaseLog.push(label);
+        const addition = await call(
+          beatsFixPrompt({
+            beats: beatsWithNotes,
+            body,
+            checkReport: beatsReport,
+          }),
+          chapterModel,
+          estimateMaxTokens(Math.max(600, Math.round(targetWords * 0.25))),
+          (_delta, generated) => {
+            const bodySoFar = appendBody(prefix, generated);
+            streamedBody = bodySoFar;
+            emit({
+              phase: "beats_check",
+              label,
+              wordsNow: countTextWords(bodySoFar),
+              wordsTarget: targetWords,
+              bodySoFar,
+            });
+          }
+        );
+        body = appendBody(body, addition);
+        streamedBody = body;
+        beatsReport = await call(
+          beatsCheckPrompt(beatsWithNotes, body),
+          checkModel,
+          estimateMaxTokens(1200)
+        );
+      }
+    }
+
+    if (settings.writePipelinePolish !== false) {
+      logPhase("polish", "⑥ 连贯与声口润色");
+      const label = "⑥ 连贯与声口润色";
+      const oldBody = body;
+      streamedBody = body;
+      replaceInFlight = true;
+      const newText = await call(
+        polishPrompt({ body, prevTail, bible: bibleWithKb, characters }),
+        checkModel,
+        estimateMaxTokens(Math.max(targetWords, countTextWords(body))),
+        () => {
+          emit({
+            phase: "polish",
+            label,
+            wordsNow: countTextWords(oldBody),
+            wordsTarget: targetWords,
+            bodySoFar: oldBody,
+          });
+        }
+      );
+      replaceInFlight = false;
+      body = acceptReplacement("润色", oldBody, newText);
+      streamedBody = body;
+    }
+
+    logPhase("report", "⑦ 生成终检报告并落盘");
+    if (opts.persist !== false) {
+      const existing = chapterFiles.find(
+        (file) =>
+          file.name === `${opts.chapterId}.md` ||
+          file.name.startsWith(`${opts.chapterId}_`)
+      );
+      if (existing) {
+        const oldBody = await w.readText(existing.path);
+        if (oldBody.trim()) {
+          await backupChapter({
+            root: opts.root,
+            join: opts.join,
+            chapterId: opts.chapterId,
+            body: oldBody,
+            note: "流水线重写前备份",
+          });
+        }
+      }
+      const fileName = `${opts.chapterId}_${opts.chapterTitle || "未命名"}.md`;
+      await w.writeText(await opts.join(opts.root, "chapters", fileName), body);
+      if (opts.extractHooks !== false) {
+        try {
+          await withRetry(
+            () =>
+              extractAndSaveHooks({
+                root: opts.root,
+                join: opts.join,
+                chapterId: opts.chapterId,
+                body,
+                settings: opts.settings,
+                providers: opts.providers,
+                signal: opts.signal,
+              }),
+            { retries: 2, delayMs: 1500, signal: opts.signal }
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (opts.signal?.aborted || /已取消|AbortError/i.test(message)) throw error;
+          // 钩子抽取失败不阻挡正文落盘。
+        }
+      }
+    }
+
+    const words = countTextWords(body);
+    const ratio = words / targetWords;
+    logPhase("done", `完成：${words}/${targetWords} 字（${Math.round(ratio * 100)}%）`);
+    return {
+      body,
+      words,
+      targetWords,
+      ratio,
+      continueRounds,
+      beatsReport,
+      phaseLog,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const bodySoFar = replaceInFlight ? body : streamedBody || body;
+    phaseLog.push(`失败：${message}`);
+    emit({
+      phase: "error",
+      label: message,
+      wordsNow: bodySoFar ? countTextWords(bodySoFar) : 0,
+      wordsTarget: targetWords,
+      bodySoFar,
+    });
+    throw error;
+  }
+}
