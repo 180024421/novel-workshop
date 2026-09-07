@@ -206,6 +206,10 @@ export function SettingsPage() {
       editorEngine: settings.editorEngine === "textarea" ? "textarea" : "codemirror",
       kbAutoIndexChapters: settings.kbAutoIndexChapters !== false,
       kbEmbeddingEnabled: Boolean(settings.kbEmbeddingEnabled),
+      kbEmbeddingModel: settings.kbEmbeddingModel || "text-embedding-3-small",
+      confirmCostBeforeWrite: settings.confirmCostBeforeWrite !== false,
+      summaryInjectCount: settings.summaryInjectCount ?? 5,
+      autoSummarizeChapter: settings.autoSummarizeChapter !== false,
     });
   }, [settings]);
   useEffect(() => setList(providers), [providers]);
@@ -813,12 +817,63 @@ export function SettingsPage() {
           启用 Embedding 向量检索（实验）
         </label>
         {form.kbEmbeddingEnabled ? (
-          <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
-            {kbEmbeddingApiReady(list)
-              ? "将调用当前启用渠道的 OpenAI 兼容 /embeddings；失败自动回退 MiniSearch。"
-              : "当前无可用渠道 Key，检索仍回退 MiniSearch，不影响写作。"}
-          </p>
+          <>
+            <div className="field">
+              <label>Embedding 模型名</label>
+              <input
+                value={form.kbEmbeddingModel || ""}
+                onChange={(e) => setForm({ ...form, kbEmbeddingModel: e.target.value })}
+                onBlur={() => void persist(list, form)}
+                placeholder="text-embedding-3-small"
+              />
+            </div>
+            <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
+              {kbEmbeddingApiReady(list)
+                ? "将调用当前启用渠道的 OpenAI 兼容 /embeddings；失败自动回退 MiniSearch。"
+                : "需要 OpenAI 兼容 /embeddings；当前无可用 Key，检索仍回退 MiniSearch。"}
+            </p>
+          </>
         ) : null}
+        <label className="muted" style={{ fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={form.confirmCostBeforeWrite !== false}
+            onChange={(e) => {
+              const next = { ...form, confirmCostBeforeWrite: e.target.checked };
+              setForm(next);
+              void persist(list, next);
+            }}
+          />{" "}
+          写本章前确认费用预估
+        </label>
+        <label className="muted" style={{ fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={form.autoSummarizeChapter !== false}
+            onChange={(e) => {
+              const next = { ...form, autoSummarizeChapter: e.target.checked };
+              setForm(next);
+              void persist(list, next);
+            }}
+          />{" "}
+          写章成功后自动抽取章摘要
+        </label>
+        <div className="field">
+          <label>注入近章摘要条数（0–12）</label>
+          <input
+            type="number"
+            min={0}
+            max={12}
+            value={form.summaryInjectCount ?? 5}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                summaryInjectCount: Math.min(12, Math.max(0, Number(e.target.value) || 0)),
+              })
+            }
+            onBlur={() => void persist(list, form)}
+          />
+        </div>
       </SettingsSection>
       </>
       )}
