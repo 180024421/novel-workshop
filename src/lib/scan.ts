@@ -1,5 +1,7 @@
+import { CRAFT_TABOO_LINES } from "./craftRules";
+
 export type ScanHit = {
-  kind: "禁忌词" | "人名疑似漂移" | "细纲缺项";
+  kind: "禁忌词" | "人名疑似漂移" | "细纲缺项" | "工艺病";
   text: string;
   detail: string;
 };
@@ -14,6 +16,7 @@ const DEFAULT_TABOO = [
   "杀气腾腾",
   "心中暗道",
   "仿佛在说",
+  ...CRAFT_TABOO_LINES,
 ];
 
 export async function loadTabooList(
@@ -135,6 +138,73 @@ export function scanBeatsCoverage(body: string, beats: string): ScanHit[] {
   return hits;
 }
 
+/** 启发式工艺病扫描（标语/口号/顶真/电报碎句/总结腔） */
+export function scanCraftIssues(body: string): ScanHit[] {
+  const hits: ScanHit[] = [];
+  const text = body || "";
+  if (!text.trim()) return hits;
+
+  for (const w of CRAFT_TABOO_LINES) {
+    if (w && text.includes(w)) {
+      hits.push({
+        kind: "工艺病",
+        text: w,
+        detail: "疑似标语/口号/总结腔套话，请改写成具体场面",
+      });
+    }
+  }
+
+  // 顶真：短句尾=下句头，连续 ≥2 次衔接
+  const sentences = text
+    .split(/[。！？\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2 && s.length <= 28);
+  let chain = 0;
+  for (let i = 0; i < sentences.length - 1; i++) {
+    const a = sentences[i];
+    const b = sentences[i + 1];
+    const tail2 = a.slice(-2);
+    const tail1 = a.slice(-1);
+    const linked =
+      (tail2.length === 2 && (b.startsWith(tail2) || b.startsWith(tail2.slice(1)))) ||
+      (tail1 && b.startsWith(tail1) && a.length <= 12 && b.length <= 12);
+    if (linked) {
+      chain++;
+      if (chain >= 2) {
+        hits.push({
+          kind: "工艺病",
+          text: `${a} → ${b}`,
+          detail: "疑似顶真连环，请打断假气势句式",
+        });
+        break;
+      }
+    } else {
+      chain = 0;
+    }
+  }
+
+  // 电报文：连续很多极短句（≤6字）且占比高
+  const short = sentences.filter((s) => s.replace(/\s/g, "").length <= 6);
+  if (sentences.length >= 8 && short.length / sentences.length >= 0.55) {
+    hits.push({
+      kind: "工艺病",
+      text: "短句占比过高",
+      detail: "疑似电报文：请补感官与人物反应，避免通篇碎片短句",
+    });
+  }
+
+  // 总结腔
+  if (/他(渐渐)?明白了|从今往后他|这一[战事刀枪].{0,8}让他|历史将会|正义必将/.test(text)) {
+    hits.push({
+      kind: "工艺病",
+      text: "总结升华句",
+      detail: "疑似总结腔：删掉旁白升华，改用场面收束",
+    });
+  }
+
+  return hits;
+}
+
 export async function runChapterScan(opts: {
   root: string;
   join: (...p: string[]) => Promise<string>;
@@ -152,5 +222,6 @@ export async function runChapterScan(opts: {
     ...missing,
     ...aliases,
     ...scanBeatsCoverage(opts.body, opts.beats),
+    ...scanCraftIssues(opts.body),
   ];
 }

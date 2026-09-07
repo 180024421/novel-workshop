@@ -341,12 +341,47 @@ async function initProject(root, title, genre) {
   await fs.writeFile(path.join(root, "bible", "world.md"), "", "utf8");
   await fs.writeFile(
     path.join(root, "prompts", "style.md"),
-    "- 对白自然，有画面与节奏\n- 禁止流水账与口号腔\n- 人物声口要区分\n",
+    `# 写作工艺（强制）
+
+## 禁止
+- 啰嗦、重复、电报文、顶真连环、标语体、口号体
+- 讲课腔、总结腔、空洞形容词、说教式「他知道/他感到自己必须」
+
+## 必须
+- 人物丰满（欲望/忌讳/声口）、画面感（感官细节）、张力（阻碍与代价）
+- 合理引经据典与修辞（点到为止）、信息增量、对白有功能、视角稳定
+- 章末钩子须是具体未决事件
+
+## 文风
+- 对白自然，有画面与节奏
+- 禁止流水账与口号腔
+- 人物声口要区分
+`,
     "utf8"
   );
   await fs.writeFile(
     path.join(root, "prompts", "taboo.md"),
-    "- 总之\n- 总而言之\n- 不禁\n- 目光如炬\n- 嘴角微微上扬\n- 杀气腾腾\n- 心中暗道\n",
+    `- 总之
+- 总而言之
+- 不禁
+- 目光如炬
+- 嘴角微微上扬
+- 杀气腾腾
+- 心中暗道
+- 这一刀，注定
+- 改写命运
+- 邪不胜正
+- 我们一定能赢
+- 他明白了
+- 从今往后
+- 无比强大
+- 极其恐怖
+- 震撼人心
+- 命运的齿轮
+- 更大的风暴
+- 历史将会记住
+- 正义必将
+`,
     "utf8"
   );
   await fs.writeFile(path.join(root, "outlines", "outline.md"), "", "utf8");

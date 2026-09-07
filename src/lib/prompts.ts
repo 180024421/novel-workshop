@@ -1,9 +1,12 @@
+import { craftSystemAddon, craftUserChecklist, craftPolishAddon } from "./craftRules";
+
 export const SYSTEM_WRITER = `你是「大帅墨枢」小说写作助手。写中文网文/长篇，注重画面、人物声口与节奏。
 规则：
 1. 遵守用户给出的设定、人物卡与风格禁令。
 2. 不要输出写作过程解说，直接给可用正文或结构化结果。
 3. 参考范文只学节奏与语气，禁止大段照抄。
-4. 用 Markdown。章节标题用「# 第X章 标题」。`;
+4. 用 Markdown。章节标题用「# 第X章 标题」。
+5. ${craftSystemAddon()}`;
 
 export function expandIdeaPrompt(seed: string, style: string) {
   return `请根据用户的初级想法，扩展成可写作的设定文档（Markdown），包含：
@@ -144,7 +147,10 @@ export function chapterPrompt(opts: {
   openHooks?: string;
 }) {
   const words = opts.targetWords ?? 2500;
-  return `根据细纲写本章正文，目标 ${words} 字，务必写到 ${Math.round(words * 0.9)}～${Math.round(words * 1.15)} 字，过程戏写全，禁止草草收尾。要求对白有声口，环境有感官。只输出正文 Markdown。
+  return `根据细纲写本章正文，目标 ${words} 字，务必写到 ${Math.round(words * 0.9)}～${Math.round(words * 1.15)} 字，过程戏写全，禁止草草收尾。
+要求：对白有声口，环境有感官，人物动机清楚，冲突有代价。
+${craftUserChecklist()}
+只输出正文 Markdown。
 
 细纲：
 ${opts.beats}
@@ -167,11 +173,13 @@ ${opts.kb}`;
 }
 
 export const REVISE_SHORTCUTS = [
-  { id: "expand", label: "扩写", instruction: "在保持情节不变的前提下扩写，增加感官细节与对白，约变为原来的1.5倍。" },
-  { id: "compress", label: "压缩", instruction: "压缩冗余描写，保留冲突与关键对白，约为原来的60%。" },
-  { id: "dialogue", label: "加强对白", instruction: "强化对白声口与潜台词，减少解说腔。" },
-  { id: "conflict", label: "加强冲突", instruction: "加强冲突与张力，动作与反应写清楚。" },
+  { id: "expand", label: "扩写", instruction: "在保持情节不变的前提下扩写，增加感官细节与对白，约变为原来的1.5倍。禁止啰嗦复述。" },
+  { id: "compress", label: "压缩", instruction: "压缩冗余描写，保留冲突与关键对白，约为原来的60%。删掉总结腔与标语句。" },
+  { id: "dialogue", label: "加强对白", instruction: "强化对白声口与潜台词，减少解说腔；禁止电报碎句与口号。" },
+  { id: "conflict", label: "加强冲突", instruction: "加强冲突与张力，动作与反应写清楚，写出代价。" },
   { id: "pov", label: "改视角", instruction: "保持事件不变，略微收紧到主角感官视角，减少全知解说。" },
+  { id: "craft", label: "去工艺病", instruction: "消灭啰嗦重复、电报文、顶真连环、标语口号、讲课总结腔；补画面与人物反应，保持情节不变。" },
+  { id: "imagery", label: "加画面", instruction: "在不注水前提下补具体感官与物件细节，增强画面感。" },
 ] as const;
 
 export function revisePrompt(opts: {
@@ -192,6 +200,7 @@ export function revisePrompt(opts: {
           ? "方案C：对白与潜台词更突出。"
           : "";
   return `只修改「选中文本」，按修改意见重写。保持前后文衔接与人物声口。
+${craftUserChecklist()}
 只输出改写后的选中部分正文，不要解释，不要加前后文。
 ${variantHint}
 
@@ -337,9 +346,12 @@ export function agentSystemPrompt(
 落稿须含：本卷简介、章节列表（- 第N章 …，章数要够）、以及 \`## 第N章\` 场次（每章宜短，保证章数）。`
           : `你是「正文」写手顾问（当前：正文页）。
 先聊本章目标与情绪，再生成或改写本章正文。不要改写成总纲或细纲。
-用户可随时要求「连贯检查」（对照细纲/前后章情绪是否断裂）或「人物声口对照」（按人物卡改对白）；有此类诉求时优先做局部诊断与改写建议，再落稿。`;
+用户可随时要求「连贯检查」（对照细纲/前后章情绪是否断裂）或「人物声口对照」（按人物卡改对白）；有此类诉求时优先做局部诊断与改写建议，再落稿。
+硬性工艺：禁止啰嗦、重复、电报文、顶真连环、标语体、口号体；人物要丰满，场面要有画面与张力，典故与修辞点到为止。`;
 
   return `${role}
+
+${craftSystemAddon()}
 
 当前上下文：
 ${meta}

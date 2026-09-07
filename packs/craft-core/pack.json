@@ -1,0 +1,10 @@
+{
+  "id": "craft-core",
+  "name": "写作工艺红线包",
+  "description": "禁止啰嗦/重复/电报文/顶真/标语口号等；强制画面感、张力、人物与修辞纪律",
+  "version": "1.0",
+  "files": {
+    "style": "style.md",
+    "taboo": "taboo.md"
+  }
+}

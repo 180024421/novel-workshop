@@ -1,4 +1,5 @@
 import type { SceneBudget } from "./writePipelineUtils";
+import { craftPolishAddon, craftUserChecklist } from "./craftRules";
 
 export function briefPrompt(ctx: {
   beats: string;
@@ -13,7 +14,7 @@ export function briefPrompt(ctx: {
 ## 冲突核
 ## 情绪弧
 ## 必写点（条目）
-## 禁踩雷
+## 禁踩雷（含：啰嗦重复/电报文/顶真/标语口号等工艺病）
 不要写正文。目标全章约 ${ctx.targetWords} 字。
 
 细纲：
@@ -59,7 +60,8 @@ export function scenePrompt(ctx: {
   return `写本章第 ${ctx.sceneIndex}/${ctx.sceneTotal} 场「${ctx.scene.title}」正文。
 硬性：本场约 ${ctx.scene.budget} 字（务必写到该预算的 90% 以上再收束）；只输出本场正文 Markdown，不要解说。
 ${ctx.isFirst ? `章标题行：# ${ctx.chapterId} ${ctx.chapterTitle}` : "不要重复章标题；直接从本场接着写。"}
-过程戏写全，对白有声口，环境有感官。
+过程戏写全，对白有声口，环境有感官，冲突有代价。
+${craftUserChecklist()}
 
 简报：
 ${ctx.brief.slice(0, 3000)}
@@ -79,7 +81,8 @@ export function continuePrompt(ctx: {
   brief: string;
 }) {
   return `下面正文目前约 ${ctx.wordsNow} 字，目标 ${ctx.targetWords} 字，还差约 ${ctx.gap} 字。
-从断点继续写，补足缺口；禁止复述已写情节；只输出续写部分（不要重复已有正文）。
+从断点继续写，补足缺口；禁止复述已写情节；禁止注水啰嗦、电报碎句、标语口号；只输出续写部分（不要重复已有正文）。
+${craftUserChecklist()}
 
 简报：
 ${ctx.brief.slice(0, 2000)}
@@ -92,7 +95,7 @@ export function compressPrompt(ctx: {
   wordsNow: number;
   targetWords: number;
 }) {
-  return `正文约 ${ctx.wordsNow} 字，超过目标 ${ctx.targetWords}。轻度压缩冗余描写，保留冲突、对白与章末钩子。
+  return `正文约 ${ctx.wordsNow} 字，超过目标 ${ctx.targetWords}。轻度压缩冗余描写，保留冲突、对白与章末钩子；优先删啰嗦重复与空喊句。
 目标压缩到约 ${ctx.targetWords} 字。只输出压缩后的完整正文 Markdown。
 
 原文：
@@ -120,7 +123,9 @@ export function polishPrompt(ctx: {
   bible: string;
   characters: string;
 }) {
-  return `润色本章：修正与上章衔接、人名漂移、设定矛盾、声口崩坏。保持情节与字数大致不变。只输出润色后完整正文。
+  return `润色本章：修正与上章衔接、人名漂移、设定矛盾、声口崩坏。
+${craftPolishAddon()}
+保持情节与字数大致不变。只输出润色后完整正文。
 
 上章末：
 ${ctx.prevTail.slice(-1800) || "（开篇）"}

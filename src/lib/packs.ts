@@ -20,6 +20,15 @@ export type PackInfo = PackManifest & {
 
 const BUILTIN_FALLBACK: PackInfo[] = [
   {
+    id: "craft-core",
+    name: "写作工艺红线包",
+    description: "禁止啰嗦/重复/电报文/顶真/标语口号；强制画面感与张力",
+    version: "1.0",
+    dir: "craft-core",
+    builtin: true,
+    files: { style: "style.md", taboo: "taboo.md" },
+  },
+  {
     id: "kuang-taboo",
     name: "爽文禁忌词包",
     description: "覆盖常见网文套话禁忌列表",
@@ -147,9 +156,15 @@ export async function applyPackToProject(
 async function builtinFile(packId: string, file: string): Promise<string> {
   // content embedded for when packs aren't on disk yet in web mode
   const map: Record<string, Record<string, string>> = {
+    "craft-core": {
+      "style.md":
+        "# 写作工艺\n\n禁止啰嗦重复电报文顶真标语口号讲课总结腔。\n必须：人物丰满、画面、张力、合理典故修辞、信息增量、对白有用。\n",
+      "taboo.md":
+        "- 这一刀，注定\n- 改写命运\n- 邪不胜正\n- 我们一定能赢\n- 他明白了\n- 从今往后\n- 无比强大\n- 更大的风暴\n",
+    },
     "kuang-taboo": {
       "taboo.md":
-        "- 总之\n- 总而言之\n- 不禁\n- 目光如炬\n- 嘴角微微上扬\n- 杀气腾腾\n- 心中暗道\n- 缓缓道\n- 宛如\n",
+        "- 总之\n- 总而言之\n- 不禁\n- 目光如炬\n- 嘴角微微上扬\n- 杀气腾腾\n- 心中暗道\n- 缓缓道\n- 宛如\n- 这一刀，注定\n- 改写命运\n- 更大的风暴\n",
     },
     "qidian-export": {
       "export-note.md":
