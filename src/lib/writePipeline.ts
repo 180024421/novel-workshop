@@ -78,6 +78,18 @@ function appendBody(body: string, addition: string): string {
   return [body.trimEnd(), addition.trim()].filter(Boolean).join("\n\n");
 }
 
+const PHASE_RANK: Record<WritePipelinePhase, number> = {
+  brief: 0,
+  plan: 1,
+  scene: 2,
+  wordgate: 3,
+  beats_check: 4,
+  polish: 5,
+  report: 6,
+  done: 7,
+  error: -1,
+};
+
 export async function runWritePipeline(opts: {
   root: string;
   join: (...p: string[]) => Promise<string>;
@@ -91,6 +103,15 @@ export async function runWritePipeline(opts: {
   /** false 时跳过落盘（Studio 仅写编辑器时可由调用方落盘） */
   persist?: boolean;
   extractHooks?: boolean;
+  /** 跳过细纲自检（覆盖设置） */
+  skipBeatsCheck?: boolean;
+  /** 跳过润色（覆盖设置） */
+  skipPolish?: boolean;
+  /** 运行中可轮询：为 true 时跳过润色 */
+  getSkipPolish?: () => boolean;
+  /** 从指定阶段续跑（需配合 resumeBody） */
+  resumeFrom?: WritePipelinePhase;
+  resumeBody?: string;
 }): Promise<WritePipelineResult> {
   const w = window.moshu;
   if (!w) throw new Error("桌面文件桥接不可用");
@@ -100,8 +121,17 @@ export async function runWritePipeline(opts: {
   const minRatio = settings.writePipelineMinRatio ?? DEFAULT_MIN_RATIO;
   const maxRatio = settings.writePipelineMaxRatio ?? DEFAULT_MAX_RATIO;
   const phaseLog: string[] = [];
-  let body = "";
-  let streamedBody = "";
+  const startPhase = opts.resumeFrom ?? "brief";
+  const startRank = PHASE_RANK[startPhase] ?? 0;
+  const runFrom = (phase: WritePipelinePhase) => (PHASE_RANK[phase] ?? 0) >= startRank;
+  const skipBeatsCheck =
+    opts.skipBeatsCheck === true || settings.writePipelineSkipBeatsCheck === true;
+  const resolveSkipPolish = () =>
+    opts.skipPolish === true ||
+    settings.writePipelineSkipPolish === true ||
+    Boolean(opts.getSkipPolish?.());
+  let body = opts.resumeFrom && opts.resumeBody != null ? opts.resumeBody : "";
+  let streamedBody = body;
   let replaceInFlight = false;
   let beatsReport = "";
   let continueRounds = 0;
@@ -204,93 +234,106 @@ export async function runWritePipeline(opts: {
     const chapterModel = opts.settings.routeChapter || "小说";
     const checkModel = opts.settings.routeCheck || "复杂";
 
-    logPhase("brief", "① 生成章前简报");
-    let brief: string;
-    try {
-      brief = await call(
-        briefPrompt({
-          beats: beatsWithNotes,
-          bible: bibleWithKb,
-          characters,
-          style,
-          prevTail,
-          hooks,
-          targetWords,
-        }),
-        chapterModel,
-        estimateMaxTokens(1200)
-      );
-    } catch (error) {
-      if (opts.signal?.aborted) throw error;
-      brief = beatsWithNotes;
-      phaseLog.push("章前简报失败，已按细纲降级");
-    }
-
-    logPhase("plan", "② 规划场次字数");
+    let brief = beatsWithNotes;
     let plan = fallbackScenePlan(beats, targetWords);
-    try {
-      const rawPlan = await call(
-        planPrompt({ brief, beats: beatsWithNotes, targetWords }),
-        chapterModel,
-        estimateMaxTokens(800)
-      );
-      const parsed = parseScenePlan(rawPlan);
-      if (parsed.length) plan = parsed;
-      else phaseLog.push("场次计划解析失败，已按细纲降级");
-    } catch (error) {
-      if (opts.signal?.aborted) throw error;
-      phaseLog.push("场次规划失败，已按细纲降级");
-    }
-    plan = normalizePlanBudgets(plan, targetWords);
 
-    for (let i = 0; i < plan.length; i++) {
-      const scene = plan[i];
-      const prefix = body;
-      const label = `③ 撰写场次 ${i + 1}/${plan.length}`;
-      phaseLog.push(label);
-      emit({
-        phase: "scene",
-        label,
-        sceneIndex: i + 1,
-        sceneTotal: plan.length,
-        wordsNow: countTextWords(body),
-        wordsTarget: targetWords,
-        bodySoFar: body,
-      });
-      const sceneText = await call(
-        scenePrompt({
-          brief,
-          scene,
+    if (runFrom("brief")) {
+      logPhase("brief", "① 生成章前简报");
+      try {
+        brief = await call(
+          briefPrompt({
+            beats: beatsWithNotes,
+            bible: bibleWithKb,
+            characters,
+            style,
+            prevTail,
+            hooks,
+            targetWords,
+          }),
+          chapterModel,
+          estimateMaxTokens(1200)
+        );
+      } catch (error) {
+        if (opts.signal?.aborted) throw error;
+        brief = beatsWithNotes;
+        phaseLog.push("章前简报失败，已按细纲降级");
+      }
+    } else {
+      phaseLog.push(`续跑：跳过章前简报（自 ${startPhase}）`);
+    }
+
+    if (runFrom("plan")) {
+      logPhase("plan", "② 规划场次字数");
+      try {
+        const rawPlan = await call(
+          planPrompt({ brief, beats: beatsWithNotes, targetWords }),
+          chapterModel,
+          estimateMaxTokens(800)
+        );
+        const parsed = parseScenePlan(rawPlan);
+        if (parsed.length) plan = parsed;
+        else phaseLog.push("场次计划解析失败，已按细纲降级");
+      } catch (error) {
+        if (opts.signal?.aborted) throw error;
+        phaseLog.push("场次规划失败，已按细纲降级");
+      }
+      plan = normalizePlanBudgets(plan, targetWords);
+    }
+
+    if (runFrom("scene")) {
+      for (let i = 0; i < plan.length; i++) {
+        const scene = plan[i];
+        const prefix = body;
+        const label = `③ 撰写场次 ${i + 1}/${plan.length}`;
+        phaseLog.push(label);
+        emit({
+          phase: "scene",
+          label,
           sceneIndex: i + 1,
           sceneTotal: plan.length,
-          prevSceneTail: body,
-          characters,
-          style,
-          isFirst: i === 0,
-          chapterTitle: opts.chapterTitle,
-          chapterId: opts.chapterId,
-        }),
-        chapterModel,
-        estimateMaxTokens(scene.budget),
-        (_delta, generated) => {
-          const bodySoFar = appendBody(prefix, generated);
-          streamedBody = bodySoFar;
-          emit({
-            phase: "scene",
-            label,
+          wordsNow: countTextWords(body),
+          wordsTarget: targetWords,
+          bodySoFar: body,
+        });
+        const sceneText = await call(
+          scenePrompt({
+            brief,
+            scene,
             sceneIndex: i + 1,
             sceneTotal: plan.length,
-            wordsNow: countTextWords(bodySoFar),
-            wordsTarget: targetWords,
-            bodySoFar,
-          });
-        }
-      );
-      body = appendBody(body, sceneText);
+            prevSceneTail: body,
+            characters,
+            style,
+            isFirst: i === 0,
+            chapterTitle: opts.chapterTitle,
+            chapterId: opts.chapterId,
+          }),
+          chapterModel,
+          estimateMaxTokens(scene.budget),
+          (_delta, generated) => {
+            const bodySoFar = appendBody(prefix, generated);
+            streamedBody = bodySoFar;
+            emit({
+              phase: "scene",
+              label,
+              sceneIndex: i + 1,
+              sceneTotal: plan.length,
+              wordsNow: countTextWords(bodySoFar),
+              wordsTarget: targetWords,
+              bodySoFar,
+            });
+          }
+        );
+        body = appendBody(body, sceneText);
+        streamedBody = body;
+      }
+    } else if (opts.resumeBody != null) {
+      body = opts.resumeBody;
       streamedBody = body;
+      phaseLog.push(`续跑：载入已有正文 ${countTextWords(body)} 字`);
     }
 
-    if (settings.writePipelineWordGate !== false) {
+    if (runFrom("wordgate") && settings.writePipelineWordGate !== false) {
       logPhase("wordgate", "④ 检查正文长度");
       let status = wordGateStatus(countTextWords(body), targetWords, minRatio, maxRatio);
       while (status === "under" && continueRounds < 3) {
@@ -347,7 +390,11 @@ export async function runWritePipeline(opts: {
       }
     }
 
-    if (settings.writePipelineBeatsCheck !== false) {
+    if (
+      runFrom("beats_check") &&
+      settings.writePipelineBeatsCheck !== false &&
+      !skipBeatsCheck
+    ) {
       logPhase("beats_check", "⑤ 对照细纲自检");
       beatsReport = await call(
         beatsCheckPrompt(beatsWithNotes, body),
@@ -386,9 +433,15 @@ export async function runWritePipeline(opts: {
           estimateMaxTokens(1200)
         );
       }
+    } else if (runFrom("beats_check") && skipBeatsCheck) {
+      phaseLog.push("已跳过细纲自检");
     }
 
-    if (settings.writePipelinePolish !== false) {
+    if (
+      runFrom("polish") &&
+      settings.writePipelinePolish !== false &&
+      !resolveSkipPolish()
+    ) {
       logPhase("polish", "⑥ 连贯与声口润色");
       const label = "⑥ 连贯与声口润色";
       const oldBody = body;
@@ -411,6 +464,8 @@ export async function runWritePipeline(opts: {
       replaceInFlight = false;
       body = acceptReplacement("润色", oldBody, newText);
       streamedBody = body;
+    } else if (runFrom("polish") && resolveSkipPolish()) {
+      phaseLog.push("已跳过润色");
     }
 
     logPhase("report", "⑦ 生成终检报告并落盘");
