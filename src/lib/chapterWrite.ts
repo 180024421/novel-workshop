@@ -2,7 +2,8 @@ import { backupChapter } from "./backup";
 import { loadCharactersMarkdown } from "./characters";
 import { chatCompletion } from "./gateway";
 import { extractAndSaveHooks, formatOpenHooksForPrompt, loadHooksLedger } from "./hooksLedger";
-import { formatKbForPrompt, inferKbTags, retrieveChunks } from "./kb";
+import { formatKbForPrompt, inferKbTags } from "./kb";
+import { retrieveForWriting } from "./kbRetrieve";
 import { chapterPrompt, SYSTEM_WRITER } from "./prompts";
 import { withRetry, sleep } from "./retry";
 import { countTextWords } from "./projectProgress";
@@ -25,6 +26,14 @@ import {
   type WritePipelineProgress,
   type WritePipelineResult,
 } from "./writePipeline";
+import { loadEntities, matchEntities, formatEntitiesForPrompt } from "./entities";
+import {
+  formatRecentSummariesForPrompt,
+  loadSummaries,
+  parseSummaryText,
+  summarizePrompt,
+  upsertChapterSummary,
+} from "./summaries";
 
 export type WritePreset = "quality" | "fast";
 
@@ -153,17 +162,32 @@ export async function writeOneChapter(opts: {
     { chunks: [] }
   );
   const tags = inferKbTags(`${opts.chapterTitle}\n${beats}`);
-  const kb = formatKbForPrompt(
-    retrieveChunks(
-      kbIndex.chunks || [],
-      `${opts.chapterTitle} ${beats.slice(0, 200)}`,
-      5,
-      tags
-    )
+  const query = `${opts.chapterTitle} ${beats.slice(0, 200)}`;
+  const mergedKb = await retrieveForWriting({
+    chunks: kbIndex.chunks || [],
+    query,
+    tags,
+    settings: opts.settings,
+    providers: opts.providers,
+    root: opts.root,
+    join: opts.join,
+    signal: opts.signal,
+  });
+  const kb = formatKbForPrompt(mergedKb);
+  const entities = await loadEntities(opts.root, opts.join);
+  const entityBlock = formatEntitiesForPrompt(
+    matchEntities(`${beats}\n${opts.chapterTitle}\n${notes}`, entities, 8)
+  );
+  const summaries = await loadSummaries(opts.root, opts.join);
+  const summaryBlock = formatRecentSummariesForPrompt(
+    summaries,
+    opts.chapterId,
+    opts.settings.summaryInjectCount ?? 5
   );
   const beatsWithNotes = [beats, notes.trim() ? `## 作者本章补充\n${notes}` : "", hooksBlock]
     .filter(Boolean)
     .join("\n\n");
+  const bibleExtra = [bible, entityBlock, summaryBlock].filter(Boolean).join("\n\n");
 
   const text = await withRetry(
     () =>
@@ -175,7 +199,7 @@ export async function writeOneChapter(opts: {
             role: "user",
             content: chapterPrompt({
               beats: beatsWithNotes,
-              bible,
+              bible: bibleExtra,
               characters,
               style,
               prevTail,
@@ -212,6 +236,39 @@ export async function writeOneChapter(opts: {
       });
     } catch {
       /* 钩子抽取失败不挡正文 */
+    }
+  }
+  if (opts.settings.autoSummarizeChapter !== false) {
+    try {
+      const raw = await chatCompletion(
+        opts.settings,
+        [
+          { role: "system", content: SYSTEM_WRITER },
+          {
+            role: "user",
+            content: summarizePrompt(opts.chapterId, opts.chapterTitle, text),
+          },
+        ],
+        {
+          providers: opts.providers,
+          model: opts.settings.routeCheck || "复杂",
+          maxTokens: 800,
+          signal: opts.signal,
+        }
+      );
+      const summary = parseSummaryText(raw);
+      if (summary) {
+        await upsertChapterSummary({
+          root: opts.root,
+          join: opts.join,
+          chapterId: opts.chapterId,
+          title: opts.chapterTitle,
+          summary,
+          words: countTextWords(text),
+        });
+      }
+    } catch {
+      /* ignore */
     }
   }
   return text;

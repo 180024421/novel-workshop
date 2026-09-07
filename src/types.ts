@@ -101,6 +101,14 @@ export type AppSettings = {
   kbAutoIndexChapters?: boolean;
   /** 启用 embedding 向量检索；默认 false；无 API 时回退 MiniSearch */
   kbEmbeddingEnabled?: boolean;
+  /** embedding 模型名（OpenAI 兼容） */
+  kbEmbeddingModel?: string;
+  /** 写章前弹出费用确认；默认 true */
+  confirmCostBeforeWrite?: boolean;
+  /** 注入近章摘要条数，默认 5 */
+  summaryInjectCount?: number;
+  /** 写章成功后自动抽摘要；默认 true */
+  autoSummarizeChapter?: boolean;
 };
 
 export type LicenseBridgeStatus = {

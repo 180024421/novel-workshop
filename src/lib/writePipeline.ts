@@ -6,7 +6,8 @@ import {
   formatOpenHooksForPrompt,
   loadHooksLedger,
 } from "./hooksLedger";
-import { formatKbForPrompt, inferKbTags, retrieveChunks } from "./kb";
+import { formatKbForPrompt, inferKbTags } from "./kb";
+import { retrieveForWriting } from "./kbRetrieve";
 import { pickPrevChapterFile } from "./chapterNav";
 import { countTextWords } from "./projectProgress";
 import { beatsCheckPrompt, SYSTEM_WRITER } from "./prompts";
@@ -34,6 +35,14 @@ import {
   wordGateStatus,
 } from "./writePipelineUtils";
 import type { AppSettings, KbChunk } from "../types";
+import { loadEntities, matchEntities, formatEntitiesForPrompt } from "./entities";
+import {
+  formatRecentSummariesForPrompt,
+  loadSummaries,
+  parseSummaryText,
+  summarizePrompt,
+  upsertChapterSummary,
+} from "./summaries";
 
 export type WritePipelinePhase =
   | "brief"
@@ -216,13 +225,27 @@ export async function runWritePipeline(opts: {
       { chunks: [] }
     );
     const tags = inferKbTags(`${opts.chapterTitle}\n${beats}`);
-    const kb = formatKbForPrompt(
-      retrieveChunks(
-        kbIndex.chunks || [],
-        `${opts.chapterTitle} ${beats.slice(0, 200)}`,
-        5,
-        tags
-      )
+    const query = `${opts.chapterTitle} ${beats.slice(0, 200)}`;
+    const mergedKb = await retrieveForWriting({
+      chunks: kbIndex.chunks || [],
+      query,
+      tags,
+      settings: opts.settings,
+      providers: opts.providers,
+      root: opts.root,
+      join: opts.join,
+      signal: opts.signal,
+    });
+    const kb = formatKbForPrompt(mergedKb);
+    const entities = await loadEntities(opts.root, opts.join);
+    const entityBlock = formatEntitiesForPrompt(
+      matchEntities(`${beats}\n${opts.chapterTitle}\n${notes}`, entities, 8)
+    );
+    const summaries = await loadSummaries(opts.root, opts.join);
+    const summaryBlock = formatRecentSummariesForPrompt(
+      summaries,
+      opts.chapterId,
+      opts.settings.summaryInjectCount ?? 5
     );
     const beatsWithNotes = [
       beats,
@@ -230,7 +253,9 @@ export async function runWritePipeline(opts: {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const bibleWithKb = [bible, kb].filter(Boolean).join("\n\n");
+    const bibleWithKb = [bible, kb, entityBlock, summaryBlock, hooks]
+      .filter(Boolean)
+      .join("\n\n");
     const chapterModel = opts.settings.routeChapter || "小说";
     const checkModel = opts.settings.routeCheck || "复杂";
 
@@ -508,6 +533,29 @@ export async function runWritePipeline(opts: {
           const message = error instanceof Error ? error.message : String(error);
           if (opts.signal?.aborted || /已取消|AbortError/i.test(message)) throw error;
           // 钩子抽取失败不阻挡正文落盘。
+        }
+      }
+      if (opts.settings.autoSummarizeChapter !== false) {
+        try {
+          const raw = await call(
+            summarizePrompt(opts.chapterId, opts.chapterTitle, body),
+            checkModel,
+            estimateMaxTokens(400)
+          );
+          const summary = parseSummaryText(raw);
+          if (summary) {
+            await upsertChapterSummary({
+              root: opts.root,
+              join: opts.join,
+              chapterId: opts.chapterId,
+              title: opts.chapterTitle,
+              summary,
+              words: countTextWords(body),
+            });
+            phaseLog.push("已更新章摘要");
+          }
+        } catch {
+          phaseLog.push("章摘要失败（可忽略）");
         }
       }
     }

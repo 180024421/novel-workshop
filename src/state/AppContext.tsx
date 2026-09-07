@@ -123,6 +123,13 @@ function normalizeSettings(s: Partial<AppSettings> | null | undefined): AppSetti
     editorEngine: s?.editorEngine === "textarea" ? "textarea" : "codemirror",
     kbAutoIndexChapters: s?.kbAutoIndexChapters !== false,
     kbEmbeddingEnabled: Boolean(s?.kbEmbeddingEnabled),
+    kbEmbeddingModel:
+      typeof s?.kbEmbeddingModel === "string" && s.kbEmbeddingModel.trim()
+        ? s.kbEmbeddingModel.trim()
+        : "text-embedding-3-small",
+    confirmCostBeforeWrite: s?.confirmCostBeforeWrite !== false,
+    summaryInjectCount: Math.min(12, Math.max(0, Math.round(Number(s?.summaryInjectCount) || 5))),
+    autoSummarizeChapter: s?.autoSummarizeChapter !== false,
   };
 }
 

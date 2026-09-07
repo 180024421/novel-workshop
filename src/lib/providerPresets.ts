@@ -148,6 +148,24 @@ export const PROVIDER_PRESETS: Omit<ProviderConfig, "apiKey" | "enabled">[] = [
     note: "免费池兜底；建议 VPN",
     region: "vpn",
   },
+  {
+    id: "Ollama",
+    name: "Ollama（本地）",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    models: ["llama3.2", "qwen2.5", "deepseek-r1"],
+    signup: "https://ollama.com/",
+    note: "本机 Ollama；apiKey 可填 ollama",
+    region: "cn",
+  },
+  {
+    id: "LMStudio",
+    name: "LM Studio（本地）",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    models: ["local-model"],
+    signup: "https://lmstudio.ai/",
+    note: "本机 LM Studio OpenAI 兼容端口；apiKey 可填 lm-studio",
+    region: "cn",
+  },
 ];
 
 export function defaultProviders(): ProviderConfig[] {
