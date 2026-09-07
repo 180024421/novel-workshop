@@ -2,6 +2,7 @@ import type { RefObject, MutableRefObject } from "react";
 import { Link } from "react-router-dom";
 import { ChapterTools } from "../../components/ChapterTools";
 import { EmptyGuide } from "../../components/EmptyGuide";
+import { StudioCodeEditor } from "../../components/StudioCodeEditor";
 import { marked } from "marked";
 import {
   EDITOR_THEME_IDS,
@@ -101,6 +102,73 @@ export function StudioEditorPane(p: StudioEditorPaneProps) {
     settings, providers, setChapterTitle, chapterTargetWords, setChapterTargetWords, llmReady,
     onNeedSetup, setHint, setErr, setBusy, abortRef, writeChapterRef,
   } = p;
+
+  const useCm = settings.editorEngine !== "textarea";
+  const editorStyle = {
+    backgroundColor: editorBg,
+    color: editorFg,
+    fontSize,
+    lineHeight,
+    caretColor: editorFg,
+    WebkitTextFillColor: editorFg,
+  } as const;
+
+  const emptyPlaceholder =
+    mode === "idea"
+      ? "或直接在此粘贴设定草稿…"
+      : mode === "outline"
+        ? "或直接在此粘贴总纲…"
+        : mode === "beats"
+          ? "或直接在此粘贴本卷细纲…"
+          : "或直接在此粘贴正文…";
+
+  const fullPlaceholder =
+    mode === "idea"
+      ? "这里只放「设定」草稿（卖点/世界观草案/人物草案）。全书成稿总述去「总纲」，章目录去「细纲」。"
+      : mode === "outline"
+        ? "这里只放「总纲」：卖点、全书梗概、世界观、人物、分卷主题。不要写第N章列表（那是细纲）。"
+        : mode === "beats"
+          ? "这里放本卷细纲：本卷简介 + 很多章的目录 + 各章精简场次。一卷通常二三十章以上。"
+          : "这里放本章正文。章号/标题以细纲为准；生成前请确认右侧提示已载入本章细纲。";
+
+  function renderEditor(opts: {
+    className: string;
+    placeholder: string;
+    minHeight?: number;
+  }) {
+    const style = {
+      ...editorStyle,
+      ...(opts.minHeight ? { minHeight: opts.minHeight } : {}),
+    };
+    if (useCm) {
+      return (
+        <StudioCodeEditor
+          editorRef={editorRef}
+          className={opts.className}
+          value={doc}
+          onChange={setDoc}
+          onSelectionChange={syncLiveSelection}
+          style={style}
+          placeholder={opts.placeholder}
+          spellCheck={false}
+        />
+      );
+    }
+    return (
+      <textarea
+        ref={editorRef}
+        className={opts.className}
+        value={doc}
+        onChange={(e) => setDoc(e.target.value)}
+        onSelect={syncLiveSelection}
+        onMouseUp={syncLiveSelection}
+        onKeyUp={syncLiveSelection}
+        style={style}
+        placeholder={opts.placeholder}
+        spellCheck={false}
+      />
+    );
+  }
 
   return (
       <section className="studio-editor">
@@ -510,34 +578,11 @@ export function StudioEditorPane(p: StudioEditorPaneProps) {
                     : NEXT_STEP[mode]?.label
               }
             />
-            <textarea
-              ref={editorRef}
-              className="studio-textarea studio-textarea-empty"
-              value={doc}
-              onChange={(e) => setDoc(e.target.value)}
-              onSelect={syncLiveSelection}
-              onMouseUp={syncLiveSelection}
-              onKeyUp={syncLiveSelection}
-              style={{
-                backgroundColor: editorBg,
-                color: editorFg,
-                fontSize,
-                lineHeight,
-                caretColor: editorFg,
-                WebkitTextFillColor: editorFg,
-                minHeight: 160,
-              }}
-              placeholder={
-                mode === "idea"
-                  ? "或直接在此粘贴设定草稿…"
-                  : mode === "outline"
-                    ? "或直接在此粘贴总纲…"
-                    : mode === "beats"
-                      ? "或直接在此粘贴本卷细纲…"
-                      : "或直接在此粘贴正文…"
-              }
-              spellCheck={false}
-            />
+            {renderEditor({
+              className: "studio-textarea studio-textarea-empty",
+              placeholder: emptyPlaceholder,
+              minHeight: 160,
+            })}
           </div>
         ) : (
           <div
@@ -545,35 +590,11 @@ export function StudioEditorPane(p: StudioEditorPaneProps) {
               viewMode === "split" ? "split" : viewMode === "preview" ? "preview-only" : ""
             }`}
           >
-            {viewMode !== "preview" && (
-              <textarea
-                ref={editorRef}
-                className="studio-textarea"
-                value={doc}
-                onChange={(e) => setDoc(e.target.value)}
-                onSelect={syncLiveSelection}
-                onMouseUp={syncLiveSelection}
-                onKeyUp={syncLiveSelection}
-                style={{
-                  backgroundColor: editorBg,
-                  color: editorFg,
-                  fontSize,
-                  lineHeight,
-                  caretColor: editorFg,
-                  WebkitTextFillColor: editorFg,
-                }}
-                placeholder={
-                  mode === "idea"
-                    ? "这里只放「设定」草稿（卖点/世界观草案/人物草案）。全书成稿总述去「总纲」，章目录去「细纲」。"
-                    : mode === "outline"
-                      ? "这里只放「总纲」：卖点、全书梗概、世界观、人物、分卷主题。不要写第N章列表（那是细纲）。"
-                      : mode === "beats"
-                        ? "这里放本卷细纲：本卷简介 + 很多章的目录 + 各章精简场次。一卷通常二三十章以上。"
-                        : "这里放本章正文。章号/标题以细纲为准；生成前请确认右侧提示已载入本章细纲。"
-                }
-                spellCheck={false}
-              />
-            )}
+            {viewMode !== "preview" &&
+              renderEditor({
+                className: "studio-textarea",
+                placeholder: fullPlaceholder,
+              })}
             {viewMode !== "edit" && (
               <div
                 className="studio-md-preview"
