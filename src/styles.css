@@ -2395,3 +2395,25 @@ a {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-tab.active {
+  border-color: var(--gold, #d4a574);
+  background: rgba(212, 165, 116, 0.12);
+  color: var(--gold, #d4a574);
+}

@@ -31,6 +31,24 @@ type SectionId =
   | "license"
   | "update";
 
+type SettingsTab = "models" | "pipeline" | "appearance" | "backup" | "license";
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "models", label: "模型与路由" },
+  { id: "pipeline", label: "写作流水线" },
+  { id: "appearance", label: "外观与热键" },
+  { id: "backup", label: "备份与更新" },
+  { id: "license", label: "授权中心" },
+];
+
+function parseSettingsTab(hash: string): SettingsTab {
+  const raw = hash.replace(/^#/, "").trim().toLowerCase();
+  if (raw === "models" || raw === "pipeline" || raw === "appearance" || raw === "backup" || raw === "license") {
+    return raw;
+  }
+  return "models";
+}
+
 const HOTKEY_HINT =
   "Ctrl+S：Studio 各写作页手动保存；Ctrl+Enter：正文触发「写本章」，其它页触发对话生成；Ctrl+Shift+N：下一章；F11：专注。Studio 内 Ctrl+F 打开章内查找；Ctrl+Shift+F 书内搜索；Ctrl+Shift+P 上一章";
 
@@ -86,11 +104,14 @@ export function SettingsPage() {
     engine: true,
     pipeline: true,
     habits: true,
-    appearance: false,
-    hotkeys: false,
-    license: false,
-    update: false,
+    appearance: true,
+    hotkeys: true,
+    license: true,
+    update: true,
   });
+  const [tab, setTab] = useState<SettingsTab>(() =>
+    typeof window !== "undefined" ? parseSettingsTab(window.location.hash) : "models"
+  );
 
   const [updateHint, setUpdateHint] = useState("");
   const [hasUpdate, setHasUpdate] = useState(false);
@@ -109,6 +130,22 @@ export function SettingsPage() {
   function toggleSection(id: SectionId) {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
   }
+
+  function selectTab(next: SettingsTab) {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${next}`);
+    }
+  }
+
+  useEffect(() => {
+    function onHash() {
+      setTab(parseSettingsTab(window.location.hash));
+    }
+    window.addEventListener("hashchange", onHash);
+    onHash();
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     setForm({
@@ -264,6 +301,22 @@ export function SettingsPage() {
         <p className="muted">贴 Key 就能写。高级选项一般不用动。</p>
       </div>
 
+      <div className="settings-tabs" role="tablist" aria-label="设置分类">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`settings-tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => selectTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "models" && (
       <SettingsSection
         id="engine"
         title="写作引擎"
@@ -546,7 +599,10 @@ export function SettingsPage() {
           </>
         )}
       </SettingsSection>
+      )}
 
+      {tab === "pipeline" && (
+      <>
       <SettingsSection
         id="pipeline"
         title="写作流水线"
@@ -761,7 +817,11 @@ export function SettingsPage() {
           </p>
         ) : null}
       </SettingsSection>
+      </>
+      )}
 
+      {tab === "appearance" && (
+      <>
       <SettingsSection
         id="appearance"
         title="外观"
@@ -1003,7 +1063,10 @@ export function SettingsPage() {
           </button>
         </div>
       </SettingsSection>
+      </>
+      )}
 
+      {tab === "license" && (
       <SettingsSection
         id="license"
         title="授权中心"
@@ -1192,10 +1255,12 @@ export function SettingsPage() {
           <span className="muted" style={{ fontSize: 12 }}>{metaHint}</span>
         </div>
       </SettingsSection>
+      )}
 
+      {tab === "backup" && (
       <SettingsSection
         id="update"
-        title="更新与渠道"
+        title="备份与更新"
         open={openSections.update}
         onToggle={toggleSection}
       >
@@ -1310,6 +1375,7 @@ export function SettingsPage() {
           />
         </div>
       </SettingsSection>
+      )}
     </div>
   );
 }
