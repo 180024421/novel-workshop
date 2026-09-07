@@ -4,7 +4,7 @@ import { confirmAction } from "../lib/confirm";
 import {
   applyPackToProject,
   importPackFolder,
-  listBuiltinPacks,
+  listAllPacks,
   type PackInfo,
 } from "../lib/packs";
 import { useApp } from "../state/AppContext";
@@ -16,8 +16,12 @@ export function PacksPage() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  async function reload() {
+    setPacks(await listAllPacks());
+  }
+
   useEffect(() => {
-    void listBuiltinPacks().then(setPacks);
+    void reload();
   }, []);
 
   async function apply(p: PackInfo) {
@@ -59,6 +63,44 @@ export function PacksPage() {
     setMsg(`已导入「${p.name}」，可点应用`);
   }
 
+  async function importZip() {
+    if (!window.moshu?.importPackZip || !window.moshu.pickFiles) {
+      setErr("需要桌面端");
+      return;
+    }
+    setErr("");
+    setMsg("");
+    const files = await window.moshu.pickFiles({
+      title: "选择扩展包 zip",
+      filters: [
+        { name: "Zip", extensions: ["zip"] },
+        { name: "全部", extensions: ["*"] },
+      ],
+    });
+    if (!files.length) return;
+    setBusy(true);
+    try {
+      let r = await window.moshu.importPackZip(files[0], { overwrite: false });
+      if (!r.ok && r.needsOverwrite) {
+        if (!confirmAction(r.message || "同 id 已存在，是否覆盖？")) {
+          setBusy(false);
+          return;
+        }
+        r = await window.moshu.importPackZip(files[0], { overwrite: true });
+      }
+      if (!r.ok) {
+        setErr(r.message || "导入失败");
+        return;
+      }
+      setMsg(r.message);
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="stack">
       <div>
@@ -80,7 +122,10 @@ export function PacksPage() {
           <button className="btn" disabled={busy} onClick={() => void importFolder()}>
             导入本地包文件夹
           </button>
-          <button className="btn btn-ghost" onClick={() => void listBuiltinPacks().then(setPacks)}>
+          <button className="btn" disabled={busy} onClick={() => void importZip()}>
+            导入 zip
+          </button>
+          <button className="btn btn-ghost" onClick={() => void reload()}>
             刷新
           </button>
         </div>

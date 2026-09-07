@@ -82,6 +82,28 @@ export async function listBuiltinPacks(): Promise<PackInfo[]> {
   return out;
 }
 
+/** 内置 + 用户导入（userData/packs） */
+export async function listAllPacks(): Promise<PackInfo[]> {
+  const builtin = await listBuiltinPacks();
+  const user: PackInfo[] = [];
+  if (window.moshu?.listUserPacks) {
+    try {
+      const dirs = await window.moshu.listUserPacks();
+      for (const dir of dirs) {
+        const p = await readPackFromDir(dir, false);
+        if (p) user.push(p);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  // 用户包覆盖同 id 内置展示顺序：用户在前
+  const byId = new Map<string, PackInfo>();
+  for (const p of builtin) byId.set(p.id, p);
+  for (const p of user) byId.set(p.id, p);
+  return [...byId.values()];
+}
+
 export async function applyPackToProject(
   pack: PackInfo,
   root: string,
