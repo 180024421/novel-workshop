@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { runBatchWrite, type BatchProgress } from "../lib/chapterWrite";
+import {
+  clearBatchSession,
+  loadBatchSession,
+  sessionProgressLabel,
+  type BatchSession,
+} from "../lib/batchSession";
+import {
+  runBatchWrite,
+  type BatchProgress,
+  type BatchRunMode,
+  type WritePreset,
+} from "../lib/chapterWrite";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
 import { confirmAction, isAbortError } from "../lib/confirm";
 import { humanizeLlmError } from "../lib/gateway";
@@ -23,7 +34,29 @@ export function BatchPage() {
   const [err, setErr] = useState("");
   const [costHint, setCostHint] = useState("");
   const [toTray, setToTray] = useState(true);
+  const [presetOverride, setPresetOverride] = useState<"" | WritePreset>("");
+  const [session, setSession] = useState<BatchSession | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  async function refreshSession() {
+    if (!project) return;
+    const s = await loadBatchSession(project.root, join);
+    setSession(s);
+    if (s) {
+      setFrom(s.from);
+      setTo(s.to);
+      setSkipExisting(s.skipExisting);
+      setTargetWords(s.targetWords);
+      setDelayMs(s.delayMs);
+      setPresetOverride(s.preset);
+    }
+  }
+
+  useEffect(() => {
+    if (!project || !window.moshu) return;
+    void refreshSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, join]);
 
   useEffect(() => {
     if (!project || !window.moshu) return;
@@ -40,7 +73,7 @@ export function BatchPage() {
     })();
   }, [project, join, from, to, targetWords, providers]);
 
-  async function start() {
+  async function start(mode: BatchRunMode = "new") {
     if (!project) return;
     if (!llmReady) {
       nav("/setup");
@@ -51,11 +84,25 @@ export function BatchPage() {
       return;
     }
     if (
+      mode === "new" &&
       !skipExisting &&
       !confirmAction("未勾选「跳过已有」，已有正文的章节会被覆盖。确定继续？")
     ) {
       return;
     }
+    if (mode !== "new" && !session) {
+      setErr("没有可续跑的批量会话");
+      return;
+    }
+    if (mode === "continue" && session && session.pending.length === 0) {
+      setErr("没有待写章节（可「只重试失败」或清空后重开）");
+      return;
+    }
+    if (mode === "retryFailed" && session && session.failed.length === 0) {
+      setErr("没有失败章节可重试");
+      return;
+    }
+
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -74,9 +121,16 @@ export function BatchPage() {
         settings,
         providers,
         signal: ac.signal,
-        onProgress: (p) => setProgress({ ...p, log: [...p.log] }),
+        writePreset: presetOverride || undefined,
+        mode,
+        session: mode === "new" ? null : session,
+        onProgress: (p) => {
+          setProgress({ ...p, log: [...p.log] });
+          if (p.session) setSession(p.session);
+        },
       });
       setProgress(result);
+      if (result.session) setSession(result.session);
       const prices = await loadPrices(join);
       const enabled = providers.find((p) => p.enabled && p.apiKey.trim());
       const price = pickPrice(prices, enabled?.id);
@@ -89,6 +143,7 @@ export function BatchPage() {
         body: `批量写完成：${result.done}/${result.total} 章 · 实写约 ${words.toLocaleString()} 字`,
       });
       await window.moshu?.showMainWindow?.();
+      await refreshSession();
     } catch (e) {
       if (!isAbortError(e)) {
         setErr(humanizeLlmError(e));
@@ -98,10 +153,19 @@ export function BatchPage() {
         });
         await window.moshu?.showMainWindow?.();
       }
+      await refreshSession();
     } finally {
       setBusy(false);
       abortRef.current = null;
     }
+  }
+
+  async function clearSession() {
+    if (!project) return;
+    if (!confirmAction("清空批量会话记录？未完成章节不会被删除。")) return;
+    await clearBatchSession(project.root, join);
+    setSession(null);
+    setProgress(null);
   }
 
   if (!project) {
@@ -112,34 +176,67 @@ export function BatchPage() {
     );
   }
 
+  const hasPending = Boolean(session && session.pending.length > 0);
+  const hasFailed = Boolean(session && session.failed.length > 0);
+
   return (
     <div className="stack">
       <div>
         <h2 className="h2">批量写正文</h2>
-        <p className="muted">从第 N 章写到第 M 章。可跳过已有、可停止后续跑。失败自动重试。</p>
+        <p className="muted">从第 N 章写到第 M 章。可跳过已有、可停止后续跑。失败自动记入会话以便重试。</p>
       </div>
 
       <div className="panel stack">
         <div className="row">
           <div className="field" style={{ width: 120 }}>
             <label>从第</label>
-            <input type="number" min={1} value={from} onChange={(e) => setFrom(Number(e.target.value) || 1)} />
+            <input
+              type="number"
+              min={1}
+              value={from}
+              disabled={busy}
+              onChange={(e) => setFrom(Number(e.target.value) || 1)}
+            />
           </div>
           <div className="field" style={{ width: 120 }}>
             <label>到第</label>
-            <input type="number" min={1} value={to} onChange={(e) => setTo(Number(e.target.value) || 1)} />
+            <input
+              type="number"
+              min={1}
+              value={to}
+              disabled={busy}
+              onChange={(e) => setTo(Number(e.target.value) || 1)}
+            />
           </div>
           <div className="field" style={{ width: 140 }}>
             <label>每章字数</label>
             <input
               type="number"
               value={targetWords}
+              disabled={busy}
               onChange={(e) => setTargetWords(Number(e.target.value) || 2500)}
             />
           </div>
           <div className="field" style={{ width: 140 }}>
             <label>章间隔(ms)</label>
-            <input type="number" value={delayMs} onChange={(e) => setDelayMs(Number(e.target.value) || 0)} />
+            <input
+              type="number"
+              value={delayMs}
+              disabled={busy}
+              onChange={(e) => setDelayMs(Number(e.target.value) || 0)}
+            />
+          </div>
+          <div className="field" style={{ width: 140 }}>
+            <label>预设</label>
+            <select
+              value={presetOverride}
+              disabled={busy}
+              onChange={(e) => setPresetOverride(e.target.value as "" | WritePreset)}
+            >
+              <option value="">默认（{settings.writePreset === "fast" ? "快速" : "质量"}）</option>
+              <option value="quality">质量</option>
+              <option value="fast">快速</option>
+            </select>
           </div>
         </div>
         <label className="check-row">
@@ -163,9 +260,41 @@ export function BatchPage() {
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           细纲识别 {chapters.length} 章 · {costHint}
         </p>
-        <div className="row">
-          <button className="btn btn-primary" disabled={busy} onClick={() => void start()}>
+
+        {session && (
+          <div className="stack" style={{ gap: 6 }}>
+            <p className="ok-text" style={{ margin: 0 }}>
+              会话：{sessionProgressLabel(session)}
+              {session.updatedAt ? ` · 更新于 ${session.updatedAt.slice(0, 16).replace("T", " ")}` : ""}
+            </p>
+            {session.failed.length > 0 && (
+              <div className="stream-box" style={{ maxHeight: 120, minHeight: 40 }}>
+                {session.failed.map((f) => `${f.chapterId}: ${f.error}`).join("\n")}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+          <button className="btn btn-primary" disabled={busy} onClick={() => void start("new")}>
             {busy ? `写作中 ${progress?.current || ""}…` : "开始批量写"}
+          </button>
+          <button
+            className="btn"
+            disabled={busy || !hasPending}
+            onClick={() => void start("continue")}
+          >
+            继续未完成
+          </button>
+          <button
+            className="btn"
+            disabled={busy || !hasFailed}
+            onClick={() => void start("retryFailed")}
+          >
+            只重试失败
+          </button>
+          <button className="btn btn-ghost" disabled={busy || !session} onClick={() => void clearSession()}>
+            清空会话
           </button>
           {busy && (
             <button className="btn btn-danger" type="button" onClick={() => abortRef.current?.abort()}>

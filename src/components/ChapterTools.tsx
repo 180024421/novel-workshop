@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { backupChapter, listBackups, restoreBackup, type BackupMeta } from "../lib/backup";
-import { writeOneChapter } from "../lib/chapterWrite";
+import { writeOneChapter, type WritePreset } from "../lib/chapterWrite";
 import { loadCharactersMarkdown } from "../lib/characters";
 import { confirmOverwrite, isAbortError } from "../lib/confirm";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
@@ -29,8 +29,10 @@ import {
 import { runChapterScan, type ScanHit } from "../lib/scan";
 import { addUsage } from "../lib/usageLedger";
 import { loadChapterBeatsText } from "../lib/volumes";
+import type { WritePipelinePhase, WritePipelineResult } from "../lib/writePipeline";
 import type { AppSettings, KbChunk } from "../types";
 import type { ProviderConfig } from "../lib/providerPresets";
+import { ChapterDiffDrawer } from "./ChapterDiffDrawer";
 
 type Props = {
   root: string;
@@ -104,6 +106,16 @@ export function ChapterTools(props: Props) {
   const [toolsMore, setToolsMore] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
+  const [presetOverride, setPresetOverride] = useState<"" | WritePreset>("");
+  const [skipBeatsLocal, setSkipBeatsLocal] = useState(false);
+  const [skipPolishLocal, setSkipPolishLocal] = useState(false);
+  const [hasPipelineSnapshot, setHasPipelineSnapshot] = useState(false);
+  const skipPolishNowRef = useRef(false);
+  const lastPipelineRef = useRef<{
+    body: string;
+    beatsReport: string;
+    ok: boolean;
+  } | null>(null);
 
   const license = checkLicense(settings);
 
@@ -123,6 +135,11 @@ export function ChapterTools(props: Props) {
   const [hooks, setHooks] = useState<HookItem[]>([]);
   const [backups, setBackups] = useState<BackupMeta[]>([]);
   const [costHint, setCostHint] = useState("");
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffLeft, setDiffLeft] = useState("");
+  const [diffLeftLabel, setDiffLeftLabel] = useState("备份");
+  const [diffMeta, setDiffMeta] = useState<BackupMeta | null>(null);
+  const [preWriteBackupId, setPreWriteBackupId] = useState<string | null>(null);
   const lastSavedWords = useRef(0);
 
   useEffect(() => {
@@ -147,6 +164,9 @@ export function ChapterTools(props: Props) {
     setScanHits([]);
     setStream("");
     setPipelineProgress("");
+    setScanHits([]);
+    setHasPipelineSnapshot(false);
+    lastPipelineRef.current = null;
     void (async () => {
       try {
         const t = await window.moshu!.readText(
@@ -200,7 +220,10 @@ export function ChapterTools(props: Props) {
     };
   }
 
-  async function writeChapter() {
+  async function writeChapter(resume?: {
+    from: WritePipelinePhase;
+    body: string;
+  }) {
     if (!window.moshu) return;
     if (!license.ok) {
       onErr(license.reason || "试用已到期，请到设置填写授权码");
@@ -214,7 +237,7 @@ export function ChapterTools(props: Props) {
       onErr("细纲里还没有本章场次，请先在「细纲」写好对应章节");
       return;
     }
-    if (doc.trim() && !confirmOverwrite(`${chapterId} 正文`)) return;
+    if (!resume && doc.trim() && !confirmOverwrite(`${chapterId} 正文`)) return;
 
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -223,16 +246,18 @@ export function ChapterTools(props: Props) {
     onErr("");
     setStream("");
     setPipelineProgress("");
+    skipPolishNowRef.current = false;
     let pipelineBeatsReport = "";
     try {
-      if (doc.trim()) {
-        await backupChapter({
+      if (!resume && doc.trim()) {
+        const meta = await backupChapter({
           root,
           join,
           chapterId,
           body: doc,
           note: "重写前备份",
         });
+        if (meta) setPreWriteBackupId(meta.id);
       }
       const text = await writeOneChapter({
         root,
@@ -243,6 +268,12 @@ export function ChapterTools(props: Props) {
         providers,
         targetWords,
         signal: ac.signal,
+        writePreset: presetOverride || undefined,
+        skipBeatsCheck: skipBeatsLocal || undefined,
+        skipPolish: skipPolishLocal || undefined,
+        getSkipPolish: () => skipPolishNowRef.current,
+        resumeFrom: resume?.from,
+        resumeBody: resume?.body,
         onDelta: (d) => {
           setStream((s) => {
             const next = s + d;
@@ -255,12 +286,24 @@ export function ChapterTools(props: Props) {
           if (progress.bodySoFar != null) {
             setDoc(progress.bodySoFar);
             setStream(progress.bodySoFar);
+            lastPipelineRef.current = {
+              body: progress.bodySoFar,
+              beatsReport: lastPipelineRef.current?.beatsReport || "",
+              ok: false,
+            };
+            setHasPipelineSnapshot(true);
           }
           onHint(progress.label);
         },
-        onResult: (result) => {
+        onResult: (result: WritePipelineResult) => {
           pipelineBeatsReport = result.beatsReport;
           setBeatsReport(result.beatsReport);
+          lastPipelineRef.current = {
+            body: result.body,
+            beatsReport: result.beatsReport,
+            ok: true,
+          };
+          setHasPipelineSnapshot(true);
         },
       });
       setDoc(text);
@@ -297,8 +340,17 @@ export function ChapterTools(props: Props) {
     }
   }
 
+  function resumeFromPhase(from: "beats_check" | "polish") {
+    const body = lastPipelineRef.current?.body || doc;
+    if (!body.trim()) {
+      onErr("没有可续跑的正文");
+      return;
+    }
+    void writeChapter({ from, body });
+  }
+
   useEffect(() => {
-    if (writeChapterRef) writeChapterRef.current = writeChapter;
+    if (writeChapterRef) writeChapterRef.current = () => writeChapter();
     return () => {
       if (writeChapterRef) writeChapterRef.current = null;
     };
@@ -502,6 +554,23 @@ export function ChapterTools(props: Props) {
     onHint("已从备份恢复");
   }
 
+  async function openDiff(meta: BackupMeta) {
+    const text = await restoreBackup(root, join, meta);
+    setDiffLeft(text);
+    setDiffLeftLabel(meta.note || meta.createdAt);
+    setDiffMeta(meta);
+    setDiffOpen(true);
+  }
+
+  async function openPreWriteDiff() {
+    const meta = backups.find((b) => b.id === preWriteBackupId) || backups[0];
+    if (!meta) {
+      onErr("暂无写前备份可对比");
+      return;
+    }
+    await openDiff(meta);
+  }
+
   function speak() {
     if (!doc.trim() || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -522,6 +591,10 @@ export function ChapterTools(props: Props) {
 
   const words = countTextWords(doc);
   const showingPipelineProgress = busy && Boolean(pipelineProgress || stream) && !drafts.A;
+  const effectivePreset =
+    presetOverride || (settings.writePreset === "fast" ? "fast" : "quality");
+  const canResumePipeline =
+    !busy && hasPipelineSnapshot && Boolean(lastPipelineRef.current?.body || doc.trim());
 
   return (
     <div className="chapter-tools">
@@ -546,6 +619,18 @@ export function ChapterTools(props: Props) {
             取消
           </button>
         )}
+        <label className="studio-chapters-n" title="本次写作预设（不写回设置）">
+          <span>预设</span>
+          <select
+            value={presetOverride}
+            disabled={busy}
+            onChange={(e) => setPresetOverride(e.target.value as "" | WritePreset)}
+          >
+            <option value="">默认（{settings.writePreset === "fast" ? "快速" : "质量"}）</option>
+            <option value="quality">质量</option>
+            <option value="fast">快速</option>
+          </select>
+        </label>
         {prevChapter && (
           <button
             type="button"
@@ -601,6 +686,7 @@ export function ChapterTools(props: Props) {
         />
         <span className="muted" style={{ fontSize: 12 }}>
           {words} 字{costHint ? ` · ${costHint}` : ""}
+          {effectivePreset === "fast" ? " · 快速" : ""}
         </span>
       </div>
       {notesOpen && (
@@ -617,6 +703,24 @@ export function ChapterTools(props: Props) {
       )}
       {toolsMore && (
         <div className="chapter-tools-bar">
+          <label className="check-row" style={{ fontSize: 12 }}>
+            <input
+              type="checkbox"
+              checked={skipBeatsLocal}
+              disabled={busy || effectivePreset === "fast"}
+              onChange={(e) => setSkipBeatsLocal(e.target.checked)}
+            />
+            跳过自检
+          </label>
+          <label className="check-row" style={{ fontSize: 12 }}>
+            <input
+              type="checkbox"
+              checked={skipPolishLocal}
+              disabled={busy || effectivePreset === "fast"}
+              onChange={(e) => setSkipPolishLocal(e.target.checked)}
+            />
+            跳过润色
+          </label>
           <button
             type="button"
             className="btn btn-ghost btn-compact"
@@ -668,6 +772,37 @@ export function ChapterTools(props: Props) {
         <div className="studio-pipeline-progress">
           <span>{pipelineProgress || "正在写入编辑器…"}</span>
           {stream && <span>约 {countTextWords(stream)} 字</span>}
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={() => {
+              skipPolishNowRef.current = true;
+              setSkipPolishLocal(true);
+              onHint("将跳过润色阶段");
+            }}
+          >
+            跳过润色
+          </button>
+        </div>
+      )}
+      {canResumePipeline && (
+        <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy || !hasBeats}
+            onClick={() => resumeFromPhase("beats_check")}
+          >
+            从自检重试
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy || !hasBeats}
+            onClick={() => resumeFromPhase("polish")}
+          >
+            从润色重试
+          </button>
         </div>
       )}
 
@@ -776,20 +911,53 @@ export function ChapterTools(props: Props) {
       {backups.length > 0 && (
         <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
           <span className="muted" style={{ fontSize: 12 }}>
-            备份回滚
+            备份
           </span>
-          {backups.slice(0, 4).map((b) => (
+          {preWriteBackupId && (
             <button
-              key={b.id}
               type="button"
               className="btn btn-ghost btn-compact"
-              onClick={() => void doRestore(b)}
+              onClick={() => void openPreWriteDiff()}
             >
-              {b.createdAt.slice(5, 16).replace("T", " ")}
+              与写前对比
             </button>
+          )}
+          {backups.slice(0, 4).map((b) => (
+            <span key={b.id} className="row" style={{ gap: 4 }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-compact"
+                onClick={() => void openDiff(b)}
+                title="对比"
+              >
+                对比 {b.createdAt.slice(5, 16).replace("T", " ")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-compact"
+                onClick={() => void doRestore(b)}
+                title="整章还原"
+              >
+                还原
+              </button>
+            </span>
           ))}
         </div>
       )}
+      <ChapterDiffDrawer
+        open={diffOpen}
+        onClose={() => setDiffOpen(false)}
+        root={root}
+        join={join}
+        leftLabel={diffLeftLabel}
+        leftText={diffLeft}
+        rightText={doc}
+        backupMeta={diffMeta}
+        onApply={(next) => {
+          setDoc(next);
+          onHint("已应用 Diff 结果（记得 Ctrl+S 保存）");
+        }}
+      />
     </div>
   );
 }

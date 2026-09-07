@@ -118,6 +118,9 @@ export function SettingsPage() {
       routeChapter: settings.routeChapter || "小说",
       routeCheck: settings.routeCheck || "复杂",
       writePipelineEnabled: settings.writePipelineEnabled !== false,
+      writePreset: settings.writePreset === "fast" ? "fast" : "quality",
+      writePipelineSkipBeatsCheck: Boolean(settings.writePipelineSkipBeatsCheck),
+      writePipelineSkipPolish: Boolean(settings.writePipelineSkipPolish),
       writePipelineWordGate: settings.writePipelineWordGate !== false,
       writePipelineBeatsCheck: settings.writePipelineBeatsCheck !== false,
       writePipelinePolish: settings.writePipelinePolish !== false,
@@ -547,6 +550,37 @@ export function SettingsPage() {
         open={openSections.pipeline}
         onToggle={toggleSection}
       >
+        <div className="field">
+          <label>写作预设</label>
+          <div className="row" style={{ gap: 16, flexWrap: "wrap" }}>
+            <label className="muted" style={{ fontSize: 13 }}>
+              <input
+                type="radio"
+                name="writePreset"
+                checked={(form.writePreset ?? "quality") === "quality"}
+                onChange={() => {
+                  const next = { ...form, writePreset: "quality" as const };
+                  setForm(next);
+                  void persist(list, next);
+                }}
+              />{" "}
+              质量优先（多阶段流水线）
+            </label>
+            <label className="muted" style={{ fontSize: 13 }}>
+              <input
+                type="radio"
+                name="writePreset"
+                checked={form.writePreset === "fast"}
+                onChange={() => {
+                  const next = { ...form, writePreset: "fast" as const };
+                  setForm(next);
+                  void persist(list, next);
+                }}
+              />{" "}
+              快速落稿（单次写章，跳过字数门禁/自检/润色）
+            </label>
+          </div>
+        </div>
         <label className="muted" style={{ fontSize: 13 }}>
           <input
             type="checkbox"
@@ -580,6 +614,34 @@ export function SettingsPage() {
             </label>
           ))}
         </div>
+        <div className="grid-2">
+          <label className="muted" style={{ fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(form.writePipelineSkipBeatsCheck)}
+              disabled={form.writePipelineEnabled === false}
+              onChange={(e) => {
+                const next = { ...form, writePipelineSkipBeatsCheck: e.target.checked };
+                setForm(next);
+                void persist(list, next);
+              }}
+            />{" "}
+            默认跳过细纲自检
+          </label>
+          <label className="muted" style={{ fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(form.writePipelineSkipPolish)}
+              disabled={form.writePipelineEnabled === false}
+              onChange={(e) => {
+                const next = { ...form, writePipelineSkipPolish: e.target.checked };
+                setForm(next);
+                void persist(list, next);
+              }}
+            />{" "}
+            默认跳过润色
+          </label>
+        </div>
         <div className="field">
           <label>默认单章目标字数</label>
           <input
@@ -601,7 +663,7 @@ export function SettingsPage() {
           字数门禁默认以目标字数的{" "}
           {Math.round((form.writePipelineMinRatio ?? 0.9) * 100)}%～{" "}
           {Math.round((form.writePipelineMaxRatio ?? 1.15) * 100)}% 为达标范围；不足会补写，
-          超出会轻度压缩。
+          超出会轻度压缩。快速预设会忽略上方流水线开关，直接单次落稿。
         </p>
       </SettingsSection>
 

@@ -11,10 +11,22 @@ import type { AppSettings, KbChunk } from "../types";
 import { loadChapterBeatsText } from "./volumes";
 import { pickPrevChapterFile } from "./chapterNav";
 import {
+  createBatchSession,
+  loadBatchSession,
+  markBatchDone,
+  markBatchFailed,
+  markBatchSkipped,
+  saveBatchSession,
+  type BatchSession,
+} from "./batchSession";
+import {
   runWritePipeline,
+  type WritePipelinePhase,
   type WritePipelineProgress,
   type WritePipelineResult,
 } from "./writePipeline";
+
+export type WritePreset = "quality" | "fast";
 
 export type BatchJob = {
   from: number;
@@ -31,7 +43,18 @@ export type BatchProgress = {
   log: string[];
   /** 实际写入字数合计 */
   wordsWritten: number;
+  session?: BatchSession | null;
 };
+
+export type BatchRunMode = "new" | "continue" | "retryFailed";
+
+export function resolveWritePreset(
+  settings: AppSettings,
+  override?: WritePreset
+): WritePreset {
+  if (override === "fast" || override === "quality") return override;
+  return settings.writePreset === "fast" ? "fast" : "quality";
+}
 
 export async function writeOneChapter(opts: {
   root: string;
@@ -46,8 +69,21 @@ export async function writeOneChapter(opts: {
   onProgress?: (p: WritePipelineProgress) => void;
   onResult?: (result: WritePipelineResult) => void;
   extractHooks?: boolean;
+  /** 本次任务临时覆盖设置中的预设（不写回） */
+  writePreset?: WritePreset;
+  skipBeatsCheck?: boolean;
+  skipPolish?: boolean;
+  getSkipPolish?: () => boolean;
+  resumeFrom?: WritePipelinePhase;
+  resumeBody?: string;
 }): Promise<string> {
-  if (opts.settings.writePipelineEnabled !== false) {
+  const preset = resolveWritePreset(opts.settings, opts.writePreset);
+  const forcePipeline = Boolean(opts.resumeFrom);
+  const usePipeline =
+    forcePipeline ||
+    (preset !== "fast" && opts.settings.writePipelineEnabled !== false);
+
+  if (usePipeline) {
     const result = await runWritePipeline({
       root: opts.root,
       join: opts.join,
@@ -60,6 +96,11 @@ export async function writeOneChapter(opts: {
       onProgress: opts.onProgress,
       persist: true,
       extractHooks: opts.extractHooks,
+      skipBeatsCheck: opts.skipBeatsCheck,
+      skipPolish: opts.skipPolish,
+      getSkipPolish: opts.getSkipPolish,
+      resumeFrom: opts.resumeFrom,
+      resumeBody: opts.resumeBody,
     });
     opts.onResult?.(result);
     return result.body;
@@ -185,28 +226,79 @@ export async function runBatchWrite(opts: {
   providers: ProviderConfig[];
   signal?: AbortSignal;
   onProgress?: (p: BatchProgress) => void;
+  writePreset?: WritePreset;
+  /** new=新建会话；continue=续跑 pending；retryFailed=只重试失败 */
+  mode?: BatchRunMode;
+  /** 传入已有会话（continue / retryFailed）；new 时可省略 */
+  session?: BatchSession | null;
 }): Promise<BatchProgress> {
-  const slice = opts.chapters.filter((c) => {
-    const n = Number(c.id.match(/\d+/)?.[0] || 0);
-    return n >= opts.job.from && n <= opts.job.to;
-  });
+  const mode = opts.mode ?? "new";
+  const preset = resolveWritePreset(opts.settings, opts.writePreset);
+  const byId = new Map(opts.chapters.map((c) => [c.id, c]));
+
+  let session =
+    opts.session ??
+    (mode === "new" ? null : await loadBatchSession(opts.root, opts.join));
+
+  let queue: { id: string; title: string }[];
+
+  if (mode === "continue" && session) {
+    queue = session.pending
+      .map((id) => byId.get(id) || { id, title: "未命名" })
+      .filter(Boolean);
+  } else if (mode === "retryFailed" && session) {
+    queue = session.failed.map((f) => byId.get(f.chapterId) || { id: f.chapterId, title: "未命名" });
+    session = {
+      ...session,
+      pending: [...session.pending, ...session.failed.map((f) => f.chapterId)],
+      failed: [],
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    const slice = opts.chapters.filter((c) => {
+      const n = Number(c.id.match(/\d+/)?.[0] || 0);
+      return n >= opts.job.from && n <= opts.job.to;
+    });
+    queue = slice;
+    session = createBatchSession({
+      from: opts.job.from,
+      to: opts.job.to,
+      preset,
+      skipExisting: opts.job.skipExisting,
+      targetWords: opts.job.targetWords,
+      delayMs: opts.job.delayMs,
+      chapterIds: slice.map((c) => c.id),
+    });
+  }
+
+  if (session) {
+    await saveBatchSession(opts.root, opts.join, session);
+  }
+
   const progress: BatchProgress = {
     current: "",
-    done: 0,
-    total: slice.length,
+    done: session?.done.length ?? 0,
+    total:
+      (session?.done.length ?? 0) +
+        (session?.failed.length ?? 0) +
+        (session?.pending.length ?? 0) || queue.length,
     log: [],
     wordsWritten: 0,
+    session,
   };
-  for (let i = 0; i < slice.length; i++) {
+  opts.onProgress?.({ ...progress, log: [...progress.log] });
+
+  for (let i = 0; i < queue.length; i++) {
     if (opts.signal?.aborted) {
       progress.log.push("已停止");
       break;
     }
-    const ch = slice[i];
+    const ch = queue[i];
     progress.current = `${ch.id} ${ch.title}`;
-    opts.onProgress?.({ ...progress });
+    opts.onProgress?.({ ...progress, log: [...progress.log], session });
 
-    if (opts.job.skipExisting) {
+    const skipExisting = session?.skipExisting ?? opts.job.skipExisting;
+    if (skipExisting && mode !== "retryFailed") {
       const files = await window.moshu!.listDir(await opts.join(opts.root, "chapters"));
       const hit = files.find(
         (f) => f.name === `${ch.id}.md` || f.name.startsWith(`${ch.id}_`)
@@ -216,7 +308,12 @@ export async function runBatchWrite(opts: {
         if (body.trim()) {
           progress.log.push(`跳过 ${ch.id}`);
           progress.done++;
-          opts.onProgress?.({ ...progress });
+          if (session) {
+            session = markBatchSkipped(session, ch.id);
+            await saveBatchSession(opts.root, opts.join, session);
+            progress.session = session;
+          }
+          opts.onProgress?.({ ...progress, log: [...progress.log], session });
           continue;
         }
       }
@@ -230,23 +327,36 @@ export async function runBatchWrite(opts: {
         chapterTitle: ch.title,
         settings: opts.settings,
         providers: opts.providers,
-        targetWords: opts.job.targetWords,
+        targetWords: session?.targetWords ?? opts.job.targetWords,
         signal: opts.signal,
+        writePreset: session?.preset ?? preset,
       });
       const w = countTextWords(text);
       progress.wordsWritten += w;
       progress.log.push(`完成 ${ch.id}（${w} 字）`);
       progress.done++;
-      opts.onProgress?.({ ...progress });
-      if (opts.job.delayMs > 0 && i < slice.length - 1) {
-        await sleep(opts.job.delayMs, opts.signal);
+      if (session) {
+        session = markBatchDone(session, ch.id);
+        await saveBatchSession(opts.root, opts.join, session);
+        progress.session = session;
+      }
+      opts.onProgress?.({ ...progress, log: [...progress.log], session });
+      const delay = session?.delayMs ?? opts.job.delayMs;
+      if (delay > 0 && i < queue.length - 1) {
+        await sleep(delay, opts.signal);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       progress.log.push(`失败 ${ch.id}: ${msg}`);
-      opts.onProgress?.({ ...progress });
+      if (session && !/已取消/.test(msg)) {
+        session = markBatchFailed(session, ch.id, msg);
+        await saveBatchSession(opts.root, opts.join, session);
+        progress.session = session;
+      }
+      opts.onProgress?.({ ...progress, log: [...progress.log], session });
       if (/已取消/.test(msg)) break;
     }
   }
+  progress.session = session;
   return progress;
 }
