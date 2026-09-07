@@ -11,6 +11,7 @@ import { formatCny } from "../lib/costEstimate";
 import { matchHotkey, normalizeHotkeyMap } from "../lib/hotkeys";
 import { checkLicense } from "../lib/license";
 import { AnnouncementBanner } from "../components/AnnouncementBanner";
+import { buildProjectChecklist } from "../components/EmptyGuide";
 import type { AppMetaPayload } from "../lib/appMeta";
 import { loadJobQueue } from "../lib/jobQueue";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
@@ -31,6 +32,8 @@ const toolLinks = [
   { to: "/app/batch", label: "批量写" },
   { to: "/app/search", label: "书内搜索" },
   { to: "/app/characters", label: "人物" },
+  { to: "/app/entities", label: "实体设定" },
+  { to: "/app/revise", label: "改稿队列" },
   { to: "/app/knowledge", label: "知识库" },
   { to: "/app/timeline", label: "时间线" },
   { to: "/app/stats", label: "写作统计" },
@@ -38,7 +41,6 @@ const toolLinks = [
   { to: "/app/packs", label: "扩展包" },
   { to: "/app/settings", label: "设置" },
 ];
-
 export function AppLayout() {
   const {
     project,
@@ -91,6 +93,20 @@ export function AppLayout() {
   );
   const sideColors = resolveSidebarColors(settings);
   const license = useMemo(() => checkLicense(settings), [settings]);
+
+  const projectChecklist = useMemo(() => {
+    if (!prog || !project) return null;
+    const ch1 =
+      prog.chapterRows.find((r) => r.id === "第1章") || prog.chapterRows[0];
+    const items = buildProjectChecklist({
+      hasBible: Boolean(prog.hasBible || prog.hasSeed),
+      hasOutline: Boolean(prog.hasOutline),
+      hasBeats: prog.beatsDone > 0,
+      hasChapter1: Boolean(ch1?.hasChapter),
+    });
+    if (items.every((i) => i.done)) return null;
+    return items;
+  }, [prog, project]);
 
   const [appMeta, setAppMeta] = useState<AppMetaPayload | null>(null);
   const [versionCode, setVersionCode] = useState(1);
@@ -842,6 +858,24 @@ export function AppLayout() {
           </header>
         )}
         <main className={`main ${studioMode ? "main-studio" : ""}`}>
+          {projectChecklist && (
+            <div className="panel" style={{ marginBottom: 12, padding: "10px 14px" }}>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                开书清单（完成一项会自动消失）
+              </div>
+              <ol className="empty-guide-steps" style={{ margin: 0 }}>
+                {projectChecklist.map((s) => (
+                  <li key={s.to} style={{ opacity: s.done ? 0.45 : 1 }}>
+                    {s.done ? (
+                      <span>✓ {s.text}</span>
+                    ) : (
+                      <NavLink to={s.to}>{s.text}</NavLink>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

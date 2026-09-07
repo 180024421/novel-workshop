@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { backupChapter, listBackups, restoreBackup, type BackupMeta } from "../lib/backup";
+import { alignBeatsToBody, type BeatAlignRow } from "../lib/beatsAlign";
 import { writeOneChapter, type WritePreset } from "../lib/chapterWrite";
 import { loadCharactersMarkdown } from "../lib/characters";
 import { confirmOverwrite, isAbortError } from "../lib/confirm";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
+import { loadDraftB, saveDraftB, type DraftSlot } from "../lib/dualDraft";
 import { chatCompletion, humanizeLlmError } from "../lib/gateway";
 import {
   extractAndSaveHooks,
@@ -16,6 +18,7 @@ import {
 } from "../lib/hooksLedger";
 import { enqueueJob, shouldEnqueue } from "../lib/jobQueue";
 import { pickPrevChapterFile } from "../lib/chapterNav";
+import { syncChapterFileName } from "../lib/chapterFiles";
 import { formatKbForPrompt, retrieveChunks } from "../lib/kb";
 import { checkLicense } from "../lib/license";
 import { countTextWords } from "../lib/projectProgress";
@@ -141,6 +144,10 @@ export function ChapterTools(props: Props) {
   const [diffMeta, setDiffMeta] = useState<BackupMeta | null>(null);
   const [preWriteBackupId, setPreWriteBackupId] = useState<string | null>(null);
   const lastSavedWords = useRef(0);
+  const phaseLogRef = useRef<string[]>([]);
+  const [draftSlot, setDraftSlot] = useState<DraftSlot>("A");
+  const draftAHoldRef = useRef("");
+  const [beatAlignRows, setBeatAlignRows] = useState<BeatAlignRow[]>([]);
 
   useEffect(() => {
     lastSavedWords.current = countTextWords(doc);
@@ -167,6 +174,10 @@ export function ChapterTools(props: Props) {
     setScanHits([]);
     setHasPipelineSnapshot(false);
     lastPipelineRef.current = null;
+    phaseLogRef.current = [];
+    setDraftSlot("A");
+    draftAHoldRef.current = "";
+    setBeatAlignRows([]);
     void (async () => {
       try {
         const t = await window.moshu!.readText(
@@ -239,6 +250,11 @@ export function ChapterTools(props: Props) {
     }
     if (!resume && doc.trim() && !confirmOverwrite(`${chapterId} 正文`)) return;
 
+    if (!resume && settings.confirmCostBeforeWrite !== false) {
+      const hint = costHint || "将调用模型写一章，可能产生费用";
+      if (!window.confirm(`${hint}\n\n确认开始写本章？`)) return;
+    }
+
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -246,6 +262,7 @@ export function ChapterTools(props: Props) {
     onErr("");
     setStream("");
     setPipelineProgress("");
+    phaseLogRef.current = [];
     skipPolishNowRef.current = false;
     let pipelineBeatsReport = "";
     try {
@@ -283,6 +300,7 @@ export function ChapterTools(props: Props) {
         },
         onProgress: (progress) => {
           setPipelineProgress(progress.label);
+          phaseLogRef.current.push(progress.label);
           if (progress.bodySoFar != null) {
             setDoc(progress.bodySoFar);
             setStream(progress.bodySoFar);
@@ -322,15 +340,18 @@ export function ChapterTools(props: Props) {
       if (isAbortError(e)) onHint("已取消");
       else {
         const msg = humanizeLlmError(e);
+        const lastPhase = [...phaseLogRef.current].reverse().find(Boolean) || pipelineProgress;
+        const withPhase =
+          lastPhase && !msg.includes(lastPhase) ? `${msg}\n（阶段：${lastPhase}）` : msg;
         if (shouldEnqueue(e)) {
           await enqueueJob(root, join, {
             kind: "chapter",
             chapterId,
             chapterTitle,
-            error: msg,
+            error: withPhase,
           });
-          onErr(msg + "\n已加入待重试队列，可在进度页重试。");
-        } else onErr(msg);
+          onErr(withPhase + "\n已加入待重试队列，可在进度页重试。");
+        } else onErr(withPhase);
       }
     } finally {
       setBusy(false);
@@ -338,6 +359,76 @@ export function ChapterTools(props: Props) {
       setStream("");
       setPipelineProgress("");
     }
+  }
+
+  async function saveAsDraftB() {
+    if (!doc.trim()) {
+      onErr("当前正文为空，无法存为 B 稿");
+      return;
+    }
+    await saveDraftB(root, join, chapterId, doc);
+    onHint("已存为 B 稿");
+  }
+
+  async function loadDraftBIntoEditor() {
+    const b = await loadDraftB(root, join, chapterId);
+    if (!b.trim()) {
+      onErr("还没有 B 稿");
+      return;
+    }
+    if (doc.trim() && !confirmOverwrite("用 B 稿覆盖编辑器内容（未升主前可再存 A）")) return;
+    draftAHoldRef.current = doc;
+    setDoc(b);
+    setDraftSlot("B");
+    onHint("已加载 B 稿到编辑器");
+  }
+
+  async function toggleDraftPreview() {
+    if (draftSlot === "A") {
+      const b = await loadDraftB(root, join, chapterId);
+      if (!b.trim()) {
+        onErr("还没有 B 稿，请先「存为B稿」");
+        return;
+      }
+      draftAHoldRef.current = doc;
+      setDoc(b);
+      setDraftSlot("B");
+      onHint("预览 B 稿（A 稿仍在内存）");
+    } else {
+      setDoc(draftAHoldRef.current);
+      setDraftSlot("A");
+      onHint("已切回 A 稿预览");
+    }
+  }
+
+  async function promoteDraftB() {
+    const b = await loadDraftB(root, join, chapterId);
+    if (!b.trim()) {
+      onErr("还没有 B 稿");
+      return;
+    }
+    if (!window.confirm("将 B 稿升为主稿并覆盖 chapters 当前正文？此操作不可自动撤销。")) {
+      return;
+    }
+    if (doc.trim()) {
+      await backupChapter({ root, join, chapterId, body: doc, note: "升B为主前备份" });
+    }
+    setDoc(b);
+    draftAHoldRef.current = b;
+    setDraftSlot("A");
+    await syncChapterFileName({
+      root,
+      join,
+      chapterId,
+      title: chapterTitle,
+      body: b,
+    });
+    onHint("B 稿已升为主稿（已写入 chapters）");
+  }
+
+  async function refreshBeatAlign() {
+    const beatsLoaded = await loadChapterBeatsText({ root, join, chapterId });
+    setBeatAlignRows(alignBeatsToBody(beatsLoaded.text, doc));
   }
 
   function resumeFromPhase(from: "beats_check" | "polish") {
@@ -766,6 +857,65 @@ export function ChapterTools(props: Props) {
           <button type="button" className="btn btn-ghost btn-compact" onClick={stopSpeak}>
             停读
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy || !doc.trim()}
+            onClick={() => void saveAsDraftB()}
+          >
+            存为B稿
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy}
+            onClick={() => void loadDraftBIntoEditor()}
+          >
+            加载B
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy}
+            onClick={() => void toggleDraftPreview()}
+            title={draftSlot === "A" ? "当前预览 A" : "当前预览 B"}
+          >
+            A↔B切换预览
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy}
+            onClick={() => void promoteDraftB()}
+          >
+            升B为主
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy}
+            onClick={() => void refreshBeatAlign()}
+          >
+            场次对齐
+          </button>
+        </div>
+      )}
+      {beatAlignRows.length > 0 && (
+        <div className="scan-box">
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            细纲场次覆盖（绿=命中 / 红=缺失）· 预览槽 {draftSlot}
+          </div>
+          {beatAlignRows.map((row, i) => (
+            <div key={`${row.title}-${i}`} className="scan-hit">
+              <strong style={{ color: row.covered ? "var(--ok, #2a7)" : "var(--danger)" }}>
+                {row.covered ? "已覆盖" : "缺失"}
+              </strong>{" "}
+              · {row.title}
+              <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>
+                关键词命中 {row.hitCount}/{row.keywords.length}
+              </span>
+            </div>
+          ))}
         </div>
       )}
       {showingPipelineProgress && (

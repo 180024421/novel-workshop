@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatCny } from "../lib/costEstimate";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
+import { computeRhythmStats, type RhythmStats } from "../lib/rhythm";
 import {
   calcWritingStreak,
   getRecentUsage,
@@ -20,6 +21,7 @@ export function StatsPage() {
   const [days30, setDays30] = useState<DayRow[]>([]);
   const [streak, setStreak] = useState(0);
   const [prog, setProg] = useState<ProjectProgress | null>(null);
+  const [rhythm, setRhythm] = useState<RhythmStats | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -28,14 +30,40 @@ export function StatsPage() {
       setDays30(await getRecentUsage(30));
       const store = await loadUsage();
       setStreak(calcWritingStreak(store.days));
-      if (project) {
+      if (project && window.moshu) {
         try {
-          setProg(await loadProjectProgress(project.root, join));
+          const p = await loadProjectProgress(project.root, join);
+          setProg(p);
+          const done = p.chapterRows.filter((r) => r.hasChapter && r.words > 0).slice(-15);
+          const files = await window.moshu.listDir(await join(project.root, "chapters"));
+          const sampleBodies: { chapterId: string; body: string }[] = [];
+          for (const row of done) {
+            const hit = files.find(
+              (f) => f.name.startsWith(`${row.id}_`) && f.name.endsWith(".md")
+            );
+            if (!hit) continue;
+            try {
+              const body = await window.moshu.readText(hit.path);
+              sampleBodies.push({ chapterId: row.id, body });
+            } catch {
+              /* skip */
+            }
+          }
+          setRhythm(
+            await computeRhythmStats({
+              root: project.root,
+              join,
+              prog: p,
+              sampleBodies,
+            })
+          );
         } catch {
           setProg(null);
+          setRhythm(null);
         }
       } else {
         setProg(null);
+        setRhythm(null);
       }
     })();
   }, [project, join]);
@@ -64,7 +92,7 @@ export function StatsPage() {
     <div className="stack">
       <div>
         <h2 className="h2">写作统计</h2>
-        <p className="muted">日字数、成本、连续写作天数与章均字数（本地账本）。</p>
+        <p className="muted">日字数、成本、连续写作天数、节奏仪表盘（本地账本）。</p>
       </div>
 
       <div className="stat-grid">
@@ -101,7 +129,52 @@ export function StatsPage() {
             {(prog?.wordsTotal ?? 0).toLocaleString()}
           </div>
         </div>
+        {rhythm && (
+          <div className="stat-card">
+            <div className="stat-label">钩子闭合率</div>
+            <div className="stat-value" style={{ fontSize: 20 }}>
+              {Math.round(rhythm.hookCloseRatio * 100)}%
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              开 {rhythm.openHooks} / 闭 {rhythm.resolvedHooks}
+            </div>
+          </div>
+        )}
       </div>
+
+      {rhythm && (
+        <div className="panel stack">
+          <h3 style={{ margin: 0, fontFamily: "var(--font-brand)" }}>节奏仪表盘</h3>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            字数分桶基于全书已写章；标签粗扫近 {Math.min(15, rhythm.chaptersDone || 0)} 章正文。
+          </p>
+          <div className="stats-bars">
+            {rhythm.wordBuckets.map((b) => (
+              <div key={b.label} className="stats-bar-row" title={`${b.count} 章`}>
+                <span className="stats-bar-label">{b.label}</span>
+                <div className="stats-bar-track">
+                  <div
+                    className="stats-bar-fill"
+                    style={{
+                      width: `${Math.round(
+                        (b.count / Math.max(1, rhythm.chaptersDone)) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <span className="stats-bar-num">{b.count}</span>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 12 }}>
+            {rhythm.tagCounts.map((t) => (
+              <span key={t.tag} className="mini-badge ok">
+                {t.tag} {t.count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="panel stack">
         <h3 style={{ margin: 0, fontFamily: "var(--font-brand)" }}>近 7 日字数</h3>

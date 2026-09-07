@@ -1,13 +1,38 @@
 import { countTextWords } from "./projectProgress";
 import { exportRichBook } from "./exportRich";
+import {
+  appendWordCountFooter,
+  formatForPlatform,
+  sanitizeExportFileName,
+  type PlatformFormatId,
+} from "./platformFormat";
 
-export type ExportFormat = "markdown" | "qidian" | "feilu" | "plain" | "epub" | "docx";
+export type ExportFormat = "markdown" | "qidian" | "feilu" | "plain" | "tomato" | "epub" | "docx";
+
+function toPlatformId(format: ExportFormat): PlatformFormatId | null {
+  if (format === "qidian" || format === "plain" || format === "tomato") return format;
+  return null;
+}
+
+function formatChapterBody(body: string, format: ExportFormat, words: number): string {
+  const platform = toPlatformId(format);
+  if (!platform) {
+    return body.replace(/^#\s*第\d+章[^\n]*\n+/, "");
+  }
+  let text = formatForPlatform(body, platform);
+  if (format === "qidian" || format === "tomato" || format === "plain") {
+    text = appendWordCountFooter(text, words);
+  }
+  return text;
+}
 
 export async function exportBook(opts: {
   root: string;
   join: (...p: string[]) => Promise<string>;
   title: string;
   format: ExportFormat;
+  /** 是否应用平台排版 + 字数脚注；默认对 qidian/tomato/plain 开启 */
+  applyPlatformFormat?: boolean;
 }): Promise<{ path: string; words: number; chapters: number }> {
   if (opts.format === "epub" || opts.format === "docx") {
     return exportRichBook({
@@ -27,10 +52,11 @@ export async function exportBook(opts: {
   const parts: string[] = [];
   let words = 0;
   let chapters = 0;
+  const applyFmt = opts.applyPlatformFormat !== false;
 
   if (opts.format === "markdown") {
     parts.push(`# ${opts.title}\n`);
-  } else if (opts.format === "qidian") {
+  } else if (opts.format === "qidian" || opts.format === "tomato") {
     parts.push(`${opts.title}\n\n`);
   } else if (opts.format === "feilu") {
     parts.push(`【书名】${opts.title}\n\n`);
@@ -40,19 +66,20 @@ export async function exportBook(opts: {
     const body = (await window.moshu.readText(f.path)).trim();
     if (!body) continue;
     chapters++;
-    words += countTextWords(body);
+    const chapWords = countTextWords(body);
+    words += chapWords;
     const m = f.name.match(/^(第\d+章)_(.+)\.md$/);
     const chapTitle = m ? `${m[1]} ${m[2]}` : f.name.replace(/\.md$/, "");
 
     if (opts.format === "markdown") {
       parts.push(body.startsWith("#") ? body : `# ${chapTitle}\n\n${body}`);
       parts.push("\n\n---\n");
-    } else if (opts.format === "qidian") {
-      parts.push(`${chapTitle}\n\n`);
-      parts.push(body.replace(/^#\s*第\d+章[^\n]*\n+/, "") + "\n\n");
     } else if (opts.format === "feilu") {
       parts.push(`### ${chapTitle}\n\n`);
       parts.push(body.replace(/^#\s*第\d+章[^\n]*\n+/, "") + "\n\n");
+    } else if (applyFmt && toPlatformId(opts.format)) {
+      parts.push(`${chapTitle}\n\n`);
+      parts.push(formatChapterBody(body, opts.format, chapWords) + "\n\n");
     } else {
       parts.push(`${chapTitle}\n\n${body.replace(/^#\s*第\d+章[^\n]*\n+/, "")}\n\n\n`);
     }
@@ -60,7 +87,8 @@ export async function exportBook(opts: {
 
   const content = parts.join("\n");
   const ext = opts.format === "markdown" ? "md" : "txt";
-  const base = `${opts.title || "全书"}_${opts.format}`;
+  const safeTitle = sanitizeExportFileName(opts.title || "全书");
+  const base = sanitizeExportFileName(`${safeTitle}_${opts.format}`);
   const outPath = await opts.join(opts.root, "export", `${base}.${ext}`);
   await window.moshu.writeText(outPath, content);
 
@@ -102,7 +130,7 @@ export async function exportVolumeZip(opts: {
   }
   return window.moshu.exportVolumeZip({
     root: opts.root,
-    title: opts.title,
+    title: sanitizeExportFileName(opts.title),
     format: opts.format || "qidian",
     chaptersPerVolume: opts.chaptersPerVolume || 30,
   });

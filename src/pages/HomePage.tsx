@@ -292,6 +292,9 @@ export function HomePage() {
         <p className="tagline tagline-fit">
           中间改稿，右侧聊构想；设定 → 总纲（全书）→ 细纲（分卷+章）→ 正文
         </p>
+        <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
+          开书清单：设定 → 总纲 → 细纲 → 第1章（打开书稿后侧栏会提示未完成项）
+        </p>
 
         <div className="home-actions">
           {hasResume ? (

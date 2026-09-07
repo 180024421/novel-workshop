@@ -364,6 +364,7 @@ export function StudioEditorPane(p: StudioEditorPaneProps) {
         <StudioBeatsDrawer
           open={beatsDrawerOpen}
           beats={chapterBeats}
+          body={doc}
           onClose={() => setBeatsDrawerOpen(false)}
         />
         <div className="studio-view-tools">

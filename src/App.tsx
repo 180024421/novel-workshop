@@ -4,6 +4,7 @@ import { AppLayout } from "./pages/AppLayout";
 import { HomePage } from "./pages/HomePage";
 import { StudioPage } from "./pages/StudioPage";
 import { CharactersPage } from "./pages/CharactersPage";
+import { EntitiesPage } from "./pages/EntitiesPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SetupWizard } from "./pages/SetupWizard";
@@ -16,6 +17,7 @@ import { VolumesPage } from "./pages/VolumesPage";
 import { QuickStartPage } from "./pages/QuickStartPage";
 import { ImportPage } from "./pages/ImportPage";
 import { StatsPage } from "./pages/StatsPage";
+import { RevisePage } from "./pages/RevisePage";
 
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { bootstrapped, llmReady } = useApp();
@@ -53,6 +55,8 @@ export default function App() {
             <Route path="stats" element={<StatsPage />} />
             <Route path="packs" element={<PacksPage />} />
             <Route path="characters" element={<CharactersPage />} />
+            <Route path="entities" element={<EntitiesPage />} />
+            <Route path="revise" element={<RevisePage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

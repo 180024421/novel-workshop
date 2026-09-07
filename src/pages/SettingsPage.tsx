@@ -19,6 +19,7 @@ import { useApp } from "../state/AppContext";
 import { DEFAULT_PRICES, loadPrices, savePrices, type PriceRow } from "../lib/costEstimate";
 import { DEFAULT_HOTKEYS, HOTKEY_LABELS, eventToHotkey, type HotkeyAction } from "../lib/hotkeys";
 import { checkLicense, DEMO_LICENSE_KEY, isDemoLicenseAllowed } from "../lib/license";
+import { kbEmbeddingApiReady } from "../lib/kb";
 
 const QUICK_IDS = ["ModelScope", "DashScope", "Zhipu"];
 
@@ -813,7 +814,9 @@ export function SettingsPage() {
         </label>
         {form.kbEmbeddingEnabled ? (
           <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
-            当前引擎未配置 Embedding API，检索仍回退 MiniSearch，不影响写作。
+            {kbEmbeddingApiReady(list)
+              ? "将调用当前启用渠道的 OpenAI 兼容 /embeddings；失败自动回退 MiniSearch。"
+              : "当前无可用渠道 Key，检索仍回退 MiniSearch，不影响写作。"}
           </p>
         ) : null}
       </SettingsSection>

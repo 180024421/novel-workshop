@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { EmptyGuide } from "../components/EmptyGuide";
+import { EmptyGuide, buildProjectChecklist } from "../components/EmptyGuide";
 import { writeOneChapter } from "../lib/chapterWrite";
 import { exportBook, exportVolumeZip, type ExportFormat } from "../lib/exportBook";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
@@ -42,6 +42,7 @@ export function StatusPage() {
   const [format, setFormat] = useState<ExportFormat>("qidian");
   const [costHint, setCostHint] = useState("");
   const [volSize, setVolSize] = useState(30);
+  const [applyPlatformFormat, setApplyPlatformFormat] = useState(true);
 
   const reload = useCallback(async () => {
     if (!project) return;
@@ -74,6 +75,7 @@ export function StatusPage() {
         join,
         title: project.project.title,
         format,
+        applyPlatformFormat,
       });
       setMsg(`已导出 ${r.chapters} 章 / ${r.words} 字 → ${r.path}`);
     } catch (e) {
@@ -186,12 +188,25 @@ export function StatusPage() {
         <p className="muted">进度、钩子回收、待重试队列、平台导出。</p>
       </div>
 
-      {!prog?.hasOutline && (
+      {(!prog?.hasOutline ||
+        !(prog.hasBible || prog.hasSeed) ||
+        prog.beatsDone === 0 ||
+        !prog.chapterRows.some((r) => r.hasChapter)) && (
         <EmptyGuide
-          title="还没有可追踪的章节"
-          steps={["去设定页写卖点/世界观", "聊完后生成总纲", "细纲写章节后这里显示进度"]}
+          title="开书清单"
+          steps={buildProjectChecklist({
+            hasBible: Boolean(prog?.hasBible || prog?.hasSeed),
+            hasOutline: Boolean(prog?.hasOutline),
+            hasBeats: (prog?.beatsDone || 0) > 0,
+            hasChapter1: Boolean(
+              prog?.chapterRows.find((r) => r.id === "第1章")?.hasChapter ||
+                prog?.chapterRows[0]?.hasChapter
+            ),
+          }).map((s) =>
+            s.done ? `✓ ${s.text}` : { text: s.text, to: s.to }
+          )}
           primaryTo="/app/idea"
-          primaryLabel="去设定"
+          primaryLabel="从设定开始"
         />
       )}
 
@@ -234,6 +249,7 @@ export function StatusPage() {
           <label>导出格式</label>
           <select value={format} onChange={(e) => setFormat(e.target.value as ExportFormat)}>
             <option value="qidian">起点风格 TXT</option>
+            <option value="tomato">番茄风格 TXT</option>
             <option value="feilu">飞卢风格 TXT</option>
             <option value="plain">纯文本</option>
             <option value="markdown">Markdown</option>
@@ -241,6 +257,16 @@ export function StatusPage() {
             <option value="docx">Word DOCX</option>
           </select>
         </div>
+        {(format === "qidian" || format === "tomato" || format === "plain") && (
+          <label className="check-row" style={{ fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={applyPlatformFormat}
+              onChange={(e) => setApplyPlatformFormat(e.target.checked)}
+            />
+            应用平台排版（段间空行 / 番茄段首空格）并附加字数脚注
+          </label>
+        )}
         <div className="field">
           <label>分卷大小（章/卷）</label>
           <input
@@ -273,6 +299,9 @@ export function StatusPage() {
           </button>
           <button className="btn" onClick={() => nav("/app/batch")}>
             批量写正文
+          </button>
+          <button className="btn" onClick={() => nav("/app/revise")}>
+            改稿队列
           </button>
           <button className="btn" onClick={() => nav("/app/timeline")}>
             时间线
