@@ -1,20 +1,35 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { safeChapterFileTitle } from "../lib/chapterFiles";
+import { applyCraftUpgrade } from "../lib/craftUpgrade";
 import { GENRE_LABELS, GENRE_PRESETS } from "../lib/genrePresets";
 import {
   IMPORT_MAX_BYTES,
   estimateTextBytes,
+  mergeManuscriptChapterUp,
+  removeManuscriptChapter,
   splitManuscript,
+  updateManuscriptChapter,
   type ManuscriptChapter,
 } from "../lib/importManuscript";
+import { bootstrapVolumeBeatsFromChapters } from "../lib/volumes";
+import {
+  applyLearnedStyle,
+  parseStyleDraft,
+  sampleChaptersForStyle,
+  styleLearnPrompt,
+} from "../lib/styleLearn";
+import { chatCompletion } from "../lib/gateway";
+import { SYSTEM_WRITER } from "../lib/prompts";
+import { confirmAction } from "../lib/confirm";
 import { useApp } from "../state/AppContext";
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 export function ImportPage() {
   const nav = useNavigate();
-  const { setProject, refreshRecent, setChapterId, setChapterTitle, llmReady } = useApp();
+  const { setProject, refreshRecent, setChapterId, setChapterTitle, join, llmReady, settings, providers } =
+    useApp();
   const [step, setStep] = useState<Step>(1);
   const [filePath, setFilePath] = useState("");
   const [chapters, setChapters] = useState<ManuscriptChapter[]>([]);
@@ -22,10 +37,13 @@ export function ImportPage() {
   const [title, setTitle] = useState("导入书稿");
   const [genre, setGenre] = useState("通用");
   const [customFolder, setCustomFolder] = useState(false);
-  const [openStudio, setOpenStudio] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [projectRoot, setProjectRoot] = useState("");
+  const [optBootstrap, setOptBootstrap] = useState(true);
+  const [optCraft, setOptCraft] = useState(true);
+  const [optStyleLearn, setOptStyleLearn] = useState(false);
 
   async function pickManuscript() {
     setErr("");
@@ -118,13 +136,76 @@ export function ImportPage() {
       }
 
       setProject(opened);
+      setProjectRoot(opened.root);
       const first = chapters[0];
       setChapterId(first.id);
       setChapterTitle(first.title);
       await refreshRecent();
       setMsg(`已导入 ${chapters.length} 章 → ${opened.root}`);
       setStep(3);
-      if (openStudio) {
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishWizard(goPolish: boolean) {
+    setErr("");
+    setBusy(true);
+    try {
+      const root = projectRoot;
+      if (!root || !window.moshu) {
+        setErr("项目未就绪");
+        return;
+      }
+      const notes: string[] = [];
+      if (optBootstrap) {
+        const r = await bootstrapVolumeBeatsFromChapters({
+          root,
+          join,
+          overwrite: false,
+        });
+        notes.push(`目录 ${r.chapterCount} 章`);
+      }
+      if (optCraft) {
+        await applyCraftUpgrade(root, join);
+        notes.push("已补工艺红线");
+      }
+      if (optStyleLearn) {
+        if (!llmReady) {
+          notes.push("文风学习需先配置模型（可到扩展包页补做）");
+        } else {
+          const samples = await sampleChaptersForStyle(root, join);
+          if (samples.length >= 2) {
+            const raw = await chatCompletion(
+              settings,
+              [
+                { role: "system", content: SYSTEM_WRITER },
+                { role: "user", content: styleLearnPrompt({ samples }) },
+              ],
+              { providers, temperature: 0.4 }
+            );
+            const { styleMd } = parseStyleDraft(raw);
+            if (
+              styleMd &&
+              (await confirmAction(
+                `已生成文风卡草稿（约 ${styleMd.replace(/\s+/g, "").length} 字），合并进 prompts/style.md？`
+              ))
+            ) {
+              await applyLearnedStyle({ root, join, styleMd });
+              notes.push("已学文风并合并");
+            } else {
+              notes.push("已生成文风草稿但未合并");
+            }
+          } else {
+            notes.push("正文样本不足，跳过学文风");
+          }
+        }
+      }
+      setMsg(notes.length ? `已处理：${notes.join(" · ")}` : "已跳过结构落地");
+      setStep(4);
+      if (goPolish) {
         nav("/app/chapter");
       }
     } catch (e) {
@@ -146,12 +227,13 @@ export function ImportPage() {
             回首页
           </Link>
         </div>
-        <p className="muted">从 TXT / MD 拆章建书。不自动生成总纲与人物卡。</p>
+        <p className="muted">导入后可增卷增章、AI 润色。不自动生成总纲与人物卡。</p>
 
         <div className="steps" style={{ marginBottom: 16 }}>
           <span className={`step-pill ${step >= 1 ? "on" : ""}`}>1 选文件</span>
           <span className={`step-pill ${step >= 2 ? "on" : ""}`}>2 预览</span>
-          <span className={`step-pill ${step >= 3 ? "on" : ""}`}>3 完成</span>
+          <span className={`step-pill ${step >= 3 ? "on" : ""}`}>3 落地</span>
+          <span className={`step-pill ${step >= 4 ? "on" : ""}`}>4 完成</span>
         </div>
 
         {step === 1 && (
@@ -164,8 +246,7 @@ export function ImportPage() {
             </button>
             {!llmReady && (
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                导入建书不依赖引擎；后续写章请先{" "}
-                <Link to="/setup">配置引擎</Link>。
+                导入建书不依赖引擎；润色请先 <Link to="/setup">配置引擎</Link>。
               </p>
             )}
           </div>
@@ -178,7 +259,7 @@ export function ImportPage() {
             </div>
             {fallbackHint && (
               <p className="toast" style={{ margin: 0 }}>
-                未识别到章标题，已整篇作为「第1章_导入」。可稍后在 Studio 手动拆章。
+                未识别到章标题，已整篇作为「第1章_导入」。可在下方删改；或导入后手动拆章。
               </p>
             )}
             <div className="field">
@@ -203,25 +284,43 @@ export function ImportPage() {
               />
               <span>自选项目文件夹（默认：文档/大帅墨枢）</span>
             </label>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={openStudio}
-                onChange={(e) => setOpenStudio(e.target.checked)}
-              />
-              <span>导入后打开 Studio</span>
-            </label>
 
-            <div className="muted">预览 {chapters.length} 章</div>
-            <div className="stack" style={{ maxHeight: 280, overflow: "auto" }}>
-              {chapters.map((c) => (
-                <div key={c.id + c.title} className="list-card">
-                  <strong>
-                    {c.id}_{c.title}
-                  </strong>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    {c.body.slice(0, 80).replace(/\s+/g, " ") || "（空）"}
-                    {c.body.length > 80 ? "…" : ""}
+            <div className="muted">预览 {chapters.length} 章（可改标题 / 合并 / 删除）</div>
+            <div className="stack" style={{ maxHeight: 320, overflow: "auto", gap: 8 }}>
+              {chapters.map((c, i) => (
+                <div key={`${c.id}-${i}`} className="list-card stack" style={{ gap: 6 }}>
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    <strong style={{ minWidth: 56 }}>{c.id}</strong>
+                    <input
+                      value={c.title}
+                      onChange={(e) =>
+                        setChapters((prev) => updateManuscriptChapter(prev, i, { title: e.target.value }))
+                      }
+                      style={{ flex: 1, minWidth: 120 }}
+                      aria-label={`${c.id} 标题`}
+                    />
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {c.body.slice(0, 100).replace(/\s+/g, " ") || "（空）"}
+                    {c.body.length > 100 ? "…" : ""}
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-compact"
+                      disabled={i === 0}
+                      onClick={() => setChapters((prev) => mergeManuscriptChapterUp(prev, i))}
+                    >
+                      合并到上一章
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-compact"
+                      disabled={chapters.length <= 1}
+                      onClick={() => setChapters((prev) => removeManuscriptChapter(prev, i, true))}
+                    >
+                      删除
+                    </button>
                   </div>
                 </div>
               ))}
@@ -240,12 +339,68 @@ export function ImportPage() {
 
         {step === 3 && (
           <div className="panel stack">
+            <p className="ok-text">{msg || "章节已写入"}</p>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              推荐：补结构 + 工艺红线后，进第 1 章扫描 → 工艺润色 → Diff。
+            </p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={optBootstrap}
+                onChange={(e) => setOptBootstrap(e.target.checked)}
+              />
+              <span>从已导入章节生成第1卷细纲目录</span>
+            </label>
+            <label className="check-row">
+              <input type="checkbox" checked={optCraft} onChange={(e) => setOptCraft(e.target.checked)} />
+              <span>一键补工艺红线到 style / taboo</span>
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={optStyleLearn}
+                onChange={(e) => setOptStyleLearn(e.target.checked)}
+              />
+              <span>学我的文风（抽样正文生成 style.md，确认后合并）</span>
+            </label>
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void finishWizard(true)}
+              >
+                {busy ? "处理中…" : "补结构并去第1章润色"}
+              </button>
+              <button
+                className="btn"
+                type="button"
+                disabled={busy}
+                onClick={() => void finishWizard(false)}
+              >
+                仅落地结构
+              </button>
+              <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => nav("/app/chapter")}>
+                跳过，直接打开
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="panel stack">
             <p className="ok-text">{msg || "导入完成"}</p>
+            <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+              下一步：正文工具「扫描 → 工艺润色」；需要加章时侧栏或卷章管理点「+新建章」。
+            </p>
             <div className="row">
               <button className="btn btn-primary" type="button" onClick={() => nav("/app/chapter")}>
-                打开 Studio
+                打开第1章润色
               </button>
-              <Link className="btn" to="/">
+              <button className="btn" type="button" onClick={() => nav("/app/volumes")}>
+                卷章管理
+              </button>
+              <Link className="btn btn-ghost" to="/">
                 回首页
               </Link>
             </div>
@@ -253,7 +408,7 @@ export function ImportPage() {
         )}
 
         {err && <p className="toast">{err}</p>}
-        {msg && step !== 3 && <p className="ok-text">{msg}</p>}
+        {msg && step === 2 && <p className="ok-text">{msg}</p>}
       </div>
     </div>
   );

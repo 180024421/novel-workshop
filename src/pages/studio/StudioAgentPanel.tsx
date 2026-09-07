@@ -31,7 +31,7 @@ export type StudioAgentPanelProps = {
   clearChat: () => void;
   sendChat: (text?: string) => void;
   generateFromChat: (replace?: boolean, beatsPhase?: "list" | "full") => void;
-  applyToEditor: (text: string, replace: boolean) => void;
+  applyToEditor: (text: string, replace: boolean) => void | Promise<void>;
 };
 
 export function StudioAgentPanel(p: StudioAgentPanelProps) {
@@ -71,7 +71,7 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
               <span className="studio-agent-scope"> · 改「{editScope.label}」</span>
             )}
           </div>
-          <button type="button" className="btn btn-ghost btn-compact" onClick={clearChat}>
+          <button type="button" className="btn btn-ghost btn-compact" onClick={() => void clearChat()}>
             清空对话
           </button>
         </div>
@@ -242,7 +242,7 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                     <button
                       type="button"
                       className="btn btn-primary btn-compact"
-                      onClick={() => applyToEditor(m.content, true)}
+                      onClick={() => void applyToEditor(m.content, true)}
                     >
                       替换锁定范围
                     </button>
@@ -250,7 +250,7 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                   <button
                     type="button"
                     className="linkish studio-msg-apply"
-                    onClick={() => applyToEditor(m.content, !doc.trim())}
+                    onClick={() => void applyToEditor(m.content, !doc.trim())}
                   >
                     {doc.trim() ? "写入编辑器" : "写入编辑器"}
                   </button>
@@ -300,7 +300,7 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                 type="button"
                 className="btn btn-ghost btn-compact"
                 disabled={busy || agentBusy}
-                onClick={() => applyToEditor(lastAssistant.content, true)}
+                onClick={() => void applyToEditor(lastAssistant.content, true)}
               >
                 用最近回复覆盖
               </button>

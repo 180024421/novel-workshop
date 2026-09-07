@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { confirmAction } from "../lib/confirm";
+import { confirmAction, promptText } from "../lib/confirm";
 import { GENRE_LABELS, GENRE_PRESETS } from "../lib/genrePresets";
 import { seedSampleProject, SAMPLE } from "../lib/sampleProject";
-import { DEMO_3MIN } from "../lib/demoScript";
+import { DEMO_3MIN, DEMO_IMPORT_3MIN } from "../lib/demoScript";
 import { forgetSessionRoot, loadSession, loadSessionForRoot, saveSession } from "../lib/session";
 import { getRecentUsage, getTodayUsage, goalProgress, type DayUsage } from "../lib/usageLedger";
 import { formatCny } from "../lib/costEstimate";
@@ -222,7 +222,7 @@ export function HomePage() {
       setErr("请用桌面端打开");
       return;
     }
-    const next = window.prompt("新书名", currentTitle);
+    const next = await promptText("新书名", currentTitle);
     if (next == null) return;
     const titleTrim = next.trim();
     if (!titleTrim) return;
@@ -244,9 +244,9 @@ export function HomePage() {
       return;
     }
     if (
-      !confirmAction(
+      !(await confirmAction(
         `将「${bookTitle}」从最近列表移除？\n不会删除磁盘上的书稿文件夹。`
-      )
+      ))
     ) {
       return;
     }
@@ -292,10 +292,10 @@ export function HomePage() {
         </header>
 
         <p className="tagline tagline-fit">
-          中间改稿，右侧聊构想；设定 → 总纲（全书）→ 细纲（分卷+章）→ 正文
+          从零 AI 开书，或导入己书改稿：增卷增章、扫描润色、Diff 回退
         </p>
         <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
-          开书清单：工艺红线 → 设定 → 总纲 → 细纲 → 第1章（侧栏会提示未完成项）
+          从零：工艺 → 设定 → 总纲 → 细纲 → 正文 · 导入：拆章 → 补目录/工艺 → 润色 Diff
         </p>
         <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           <button
@@ -307,18 +307,33 @@ export function HomePage() {
           </button>
         </div>
         {demoOpen && (
-          <div className="panel stack" style={{ marginBottom: 12, padding: 12 }}>
-            <strong>{DEMO_3MIN.title}</strong>
-            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
-              {DEMO_3MIN.steps.map((s) => (
-                <li key={s.n} style={{ marginBottom: 4 }}>
-                  {s.text}
-                </li>
-              ))}
-            </ol>
-            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-              {DEMO_3MIN.tip}
-            </p>
+          <div className="stack" style={{ marginBottom: 12, gap: 10 }}>
+            <div className="panel stack" style={{ padding: 12 }}>
+              <strong>{DEMO_3MIN.title}</strong>
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                {DEMO_3MIN.steps.map((s) => (
+                  <li key={s.n} style={{ marginBottom: 4 }}>
+                    {s.text}
+                  </li>
+                ))}
+              </ol>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                {DEMO_3MIN.tip}
+              </p>
+            </div>
+            <div className="panel stack" style={{ padding: 12 }}>
+              <strong>{DEMO_IMPORT_3MIN.title}</strong>
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                {DEMO_IMPORT_3MIN.steps.map((s) => (
+                  <li key={`i-${s.n}`} style={{ marginBottom: 4 }}>
+                    {s.text}
+                  </li>
+                ))}
+              </ol>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                {DEMO_IMPORT_3MIN.tip}
+              </p>
+            </div>
           </div>
         )}
 
@@ -360,6 +375,7 @@ export function HomePage() {
             disabled={busy}
             type="button"
             onClick={() => nav("/import")}
+            title="导入后可增卷增章、AI 润色"
           >
             导入书稿
           </button>

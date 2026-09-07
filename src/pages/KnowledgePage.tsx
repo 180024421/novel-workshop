@@ -99,7 +99,7 @@ export function KnowledgePage() {
   }
 
   async function deleteChunk(id: string, source: string) {
-    if (!confirmAction(`确定删除切片「${source}」？\n此操作会从知识库移除该段。`)) return;
+    if (!(await confirmAction(`确定删除切片「${source}」？\n此操作会从知识库移除该段。`))) return;
     const next = chunks.filter((c) => c.id !== id);
     await persist(next);
     setHits((prev) => prev.filter((h) => h.id !== id));

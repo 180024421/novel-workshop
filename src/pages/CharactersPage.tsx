@@ -112,7 +112,7 @@ export function CharactersPage() {
 
   async function deleteCur() {
     if (!cur || !project || !window.moshu) return;
-    if (!confirmAction(`确定删除人物「${cur.name || cur.id}」？`)) return;
+    if (!(await confirmAction(`确定删除人物「${cur.name || cur.id}」？`))) return;
     setErr("");
     await deleteCharacterFiles(cur);
     setCur(null);
@@ -126,9 +126,9 @@ export function CharactersPage() {
     const target = list.find((c) => c.id === mergeTargetId);
     if (!target || target.id === cur.id) return;
     if (
-      !confirmAction(
+      !(await confirmAction(
         `将「${cur.name || cur.id}」合并到「${target.name || target.id}」并删除源人物？`
-      )
+      ))
     ) {
       return;
     }
@@ -153,7 +153,7 @@ export function CharactersPage() {
       setErr("设定还是空的，请先在设定页生成设定/总纲");
       return;
     }
-    if (list.length && !confirmOverwrite("人物卡（按设定重新抽取）")) return;
+    if (list.length && !(await confirmOverwrite("人物卡（按设定重新抽取）"))) return;
     setBusy(true);
     setErr("");
     setMsg("");

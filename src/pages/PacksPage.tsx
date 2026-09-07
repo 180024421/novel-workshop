@@ -2,20 +2,30 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { confirmAction } from "../lib/confirm";
 import { applyCraftUpgrade } from "../lib/craftUpgrade";
+import { chatCompletion, humanizeLlmError } from "../lib/gateway";
 import {
   applyPackToProject,
   importPackFolder,
   listAllPacks,
   type PackInfo,
 } from "../lib/packs";
+import { SYSTEM_WRITER } from "../lib/prompts";
+import {
+  applyLearnedStyle,
+  parseStyleDraft,
+  sampleChaptersForStyle,
+  styleLearnPrompt,
+} from "../lib/styleLearn";
 import { useApp } from "../state/AppContext";
 
 export function PacksPage() {
-  const { project, join } = useApp();
+  const { project, join, settings, providers, llmReady } = useApp();
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [styleDraft, setStyleDraft] = useState("");
+  const [stylePreview, setStylePreview] = useState(false);
 
   async function reload() {
     setPacks(await listAllPacks());
@@ -31,7 +41,7 @@ export function PacksPage() {
       return;
     }
     if (
-      !confirmAction(`将把扩展包「${p.name}」的提示词应用到本书，可能覆盖 prompts。确定？`)
+      !(await confirmAction(`将把扩展包「${p.name}」的提示词应用到本书，可能覆盖 prompts。确定？`))
     ) {
       return;
     }
@@ -83,7 +93,7 @@ export function PacksPage() {
     try {
       let r = await window.moshu.importPackZip(files[0], { overwrite: false });
       if (!r.ok && r.needsOverwrite) {
-        if (!confirmAction(r.message || "同 id 已存在，是否覆盖？")) {
+        if (!(await confirmAction(r.message || "同 id 已存在，是否覆盖？"))) {
           setBusy(false);
           return;
         }
@@ -108,9 +118,9 @@ export function PacksPage() {
       return;
     }
     if (
-      !confirmAction(
+      !(await confirmAction(
         "将把写作工艺红线合并进本书 prompts/style.md 与 taboo.md（保留原有内容）。确定？"
-      )
+      ))
     ) {
       return;
     }
@@ -120,6 +130,58 @@ export function PacksPage() {
     try {
       await applyCraftUpgrade(project.root, join);
       setMsg("已补齐工艺红线到 style.md / taboo.md");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function learnStyle() {
+    if (!project) {
+      setErr("请先打开项目");
+      return;
+    }
+    if (!llmReady) {
+      setErr("请先配置可用模型");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const samples = await sampleChaptersForStyle(project.root, join);
+      if (samples.length < 2) {
+        setErr("至少需要 2 章有正文才能学文风");
+        return;
+      }
+      const raw = await chatCompletion(
+        settings,
+        [
+          { role: "system", content: SYSTEM_WRITER },
+          { role: "user", content: styleLearnPrompt({ samples }) },
+        ],
+        { providers, temperature: 0.4 }
+      );
+      const { styleMd } = parseStyleDraft(raw);
+      setStyleDraft(styleMd || raw);
+      setStylePreview(true);
+      setMsg(`已根据 ${samples.length} 章样本生成草稿，请确认后合并`);
+    } catch (e) {
+      setErr(humanizeLlmError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmStyleDraft() {
+    if (!project || !styleDraft.trim()) return;
+    if (!(await confirmAction("将草稿合并进 prompts/style.md（保留工艺红线）？"))) return;
+    setBusy(true);
+    try {
+      await applyLearnedStyle({ root: project.root, join, styleMd: styleDraft });
+      setStylePreview(false);
+      setMsg("文风卡已合并到 style.md");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -159,10 +221,46 @@ export function PacksPage() {
           >
             一键补工艺红线
           </button>
+          <button
+            className="btn"
+            disabled={busy || !project}
+            onClick={() => void learnStyle()}
+            title="从已有正文抽样生成文风卡"
+          >
+            学我的文风
+          </button>
           <button className="btn btn-ghost" onClick={() => void reload()}>
             刷新
           </button>
         </div>
+        {stylePreview && (
+          <div className="panel stack">
+            <strong>文风草稿预览</strong>
+            <textarea
+              className="input"
+              rows={12}
+              value={styleDraft}
+              onChange={(e) => setStyleDraft(e.target.value)}
+            />
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => void confirmStyleDraft()}
+              >
+                确认合并
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setStylePreview(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
         {msg && <p className="ok-text">{msg}</p>}
         {err && <p className="toast">{err}</p>}
         <div className="stack">

@@ -1,0 +1,7 @@
+{
+  "id": "compliance-cn",
+  "name": "中文网文过审提示包",
+  "description": "平台敏感表达分级提示（本地扫描，可自定义）",
+  "version": "1.0",
+  "files": { "compliance": "rules.md" }
+}

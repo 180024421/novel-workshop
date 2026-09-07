@@ -1,3 +1,4 @@
+import { parseChapterFileName } from "./chapterFiles";
 import { countTextWords } from "./projectProgress";
 import { exportRichBook } from "./exportRich";
 import {
@@ -68,8 +69,10 @@ export async function exportBook(opts: {
     chapters++;
     const chapWords = countTextWords(body);
     words += chapWords;
-    const m = f.name.match(/^(第\d+章)_(.+)\.md$/);
-    const chapTitle = m ? `${m[1]} ${m[2]}` : f.name.replace(/\.md$/, "");
+    const parsed = parseChapterFileName(f.name);
+    const chapTitle = parsed
+      ? `${parsed.id} ${parsed.title}`
+      : f.name.replace(/\.md$/, "");
 
     if (opts.format === "markdown") {
       parts.push(body.startsWith("#") ? body : `# ${chapTitle}\n\n${body}`);

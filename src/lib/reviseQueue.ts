@@ -1,6 +1,6 @@
-/** 改稿任务队列：全书扫禁忌等 */
+/** 改稿任务队列：全书扫禁忌 / 批量工艺润色 */
 
-export type ReviseJobKind = "scan_taboo" | "extract_hooks";
+export type ReviseJobKind = "scan_taboo" | "extract_hooks" | "craft_polish";
 
 export type ReviseJobItem = {
   chapterId: string;

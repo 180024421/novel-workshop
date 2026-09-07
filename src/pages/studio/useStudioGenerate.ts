@@ -223,7 +223,7 @@ export function useStudioGenerate({
     return null;
   }
 
-  function applyToEditor(text: string, replace: boolean) {
+  async function applyToEditor(text: string, replace: boolean) {
     const body = stripFences(text);
     if (!body) {
       setErr("没有可写入的正文");
@@ -255,7 +255,7 @@ export function useStudioGenerate({
       }, 0);
       return;
     }
-    if (replace && doc.trim() && !confirmOverwrite("中间编辑器内容")) return;
+    if (replace && doc.trim() && !(await confirmOverwrite("中间编辑器内容"))) return;
     setDoc((prev) => (replace || !prev.trim() ? body : `${prev.trim()}\n\n${body}`));
     setHint(replace ? "已写入中间编辑器" : "已追加到编辑器末尾");
     editorRef.current?.focus();
@@ -431,7 +431,7 @@ export function useStudioGenerate({
       setErr("细纲里还没有本章场次，请先在「细纲」写好对应章节，再生成正文");
       return;
     }
-    if (replace && doc.trim() && !confirmOverwrite(`${modeLabel(mode)}草稿`)) return;
+    if (replace && doc.trim() && !(await confirmOverwrite(`${modeLabel(mode)}草稿`))) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -598,8 +598,8 @@ export function useStudioGenerate({
 
   generateFromChatRef.current = generateFromChat;
 
-  function clearChat() {
-    if (messages.length && !confirmAction("确定清空当前页的 Agent 对话？")) return;
+  async function clearChat() {
+    if (messages.length && !(await confirmAction("确定清空当前页的 Agent 对话？"))) return;
     setMessages([]);
     if (project) {
       void clearAgentThread({

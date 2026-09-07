@@ -12,6 +12,13 @@ import {
   type DayUsage,
   type WeeklyReport,
 } from "../lib/usageLedger";
+import {
+  computeSerialStatus,
+  loadSerialPlan,
+  saveSerialPlan,
+  type SerialPlan,
+  type SerialStatus,
+} from "../lib/serialPlan";
 import { useApp } from "../state/AppContext";
 
 type DayRow = { date: string; words: number; costCny: number };
@@ -25,6 +32,9 @@ export function StatsPage() {
   const [weekly, setWeekly] = useState<WeeklyReport | null>(null);
   const [prog, setProg] = useState<ProjectProgress | null>(null);
   const [rhythm, setRhythm] = useState<RhythmStats | null>(null);
+  const [err, setErr] = useState("");
+  const [serial, setSerial] = useState<SerialStatus | null>(null);
+  const [plan, setPlan] = useState<SerialPlan | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -36,8 +46,12 @@ export function StatsPage() {
       setWeekly(buildWeeklyReport(store, 7));
       if (project && window.moshu) {
         try {
+          setErr("");
           const p = await loadProjectProgress(project.root, join);
           setProg(p);
+          const sp = await loadSerialPlan(project.root, join);
+          setPlan(sp);
+          setSerial(computeSerialStatus(p, sp, store));
           const done = p.chapterRows.filter((r) => r.hasChapter && r.words > 0).slice(-15);
           const files = await window.moshu.listDir(await join(project.root, "chapters"));
           const sampleBodies: { chapterId: string; body: string }[] = [];
@@ -61,16 +75,26 @@ export function StatsPage() {
               sampleBodies,
             })
           );
-        } catch {
+        } catch (e) {
           setProg(null);
           setRhythm(null);
+          setErr(e instanceof Error ? e.message : "统计加载失败");
         }
       } else {
         setProg(null);
         setRhythm(null);
+        setSerial(null);
       }
     })();
   }, [project, join]);
+
+  async function savePlanFields(patch: Partial<SerialPlan>) {
+    if (!project || !plan) return;
+    const next = { ...plan, ...patch, updatedAt: new Date().toISOString() };
+    await saveSerialPlan(project.root, join, next);
+    setPlan(next);
+    setSerial(computeSerialStatus(prog, next));
+  }
 
   const avgChapterWords = useMemo(() => {
     if (!prog?.chaptersDone) return 0;
@@ -98,6 +122,63 @@ export function StatsPage() {
         <h2 className="h2">写作统计</h2>
         <p className="muted">日字数、成本、连续写作天数、本地周报与节奏仪表盘。</p>
       </div>
+
+      {err && <p className="err">{err}</p>}
+
+      {serial && plan && (
+        <div className="panel stack">
+          <h3 style={{ margin: 0, fontFamily: "var(--font-brand)" }}>连载排期</h3>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            风险：<strong>{serial.risk}</strong> · {serial.hint}
+          </p>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">存稿章数</div>
+              <div className="stat-value">{serial.bufferChapters}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">可撑天数</div>
+              <div className="stat-value">{serial.daysCovered}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">已写章</div>
+              <div className="stat-value">{serial.writtenCount}</div>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="muted" style={{ fontSize: 12 }}>
+                已发布到
+              </span>
+              <input
+                className="input"
+                value={plan.publishedThrough}
+                onChange={(e) => setPlan({ ...plan, publishedThrough: e.target.value })}
+                onBlur={() => void savePlanFields({ publishedThrough: plan.publishedThrough })}
+                placeholder="第12章"
+              />
+            </label>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="muted" style={{ fontSize: 12 }}>
+                日更章数
+              </span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                value={plan.dailyChapters}
+                onChange={(e) =>
+                  setPlan({
+                    ...plan,
+                    dailyChapters: Math.max(1, Number(e.target.value) || 1),
+                  })
+                }
+                onBlur={() => void savePlanFields({ dailyChapters: plan.dailyChapters })}
+              />
+            </label>
+          </div>
+        </div>
+      )}
 
       {weekly && (
         <div className="panel stack">

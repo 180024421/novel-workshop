@@ -10,6 +10,7 @@ export type PackManifest = {
     taboo?: string;
     outlineHint?: string;
     exportNote?: string;
+    compliance?: string;
   };
 };
 
@@ -45,6 +46,15 @@ const BUILTIN_FALLBACK: PackInfo[] = [
     dir: "qidian-export",
     builtin: true,
     files: { exportNote: "export-note.md" },
+  },
+  {
+    id: "compliance-cn",
+    name: "中文网文过审提示包",
+    description: "平台敏感表达分级提示（本地扫描，可自定义）",
+    version: "1.0",
+    dir: "compliance-cn",
+    builtin: true,
+    files: { compliance: "rules.md" },
   },
   {
     id: "suspense-pace",
@@ -151,6 +161,10 @@ export async function applyPackToProject(
     const t = (await read(files.exportNote)) || (await builtinFile(pack.id, files.exportNote));
     if (t) await window.moshu.writeText(await join(root, "prompts", "export-qidian.md"), t);
   }
+  if (files.compliance) {
+    const t = (await read(files.compliance)) || (await builtinFile(pack.id, files.compliance));
+    if (t) await window.moshu.writeText(await join(root, "prompts", "compliance.md"), t);
+  }
 }
 
 async function builtinFile(packId: string, file: string): Promise<string> {
@@ -175,6 +189,10 @@ async function builtinFile(packId: string, file: string): Promise<string> {
         "- 线索埋设与回收要干净\n- 信息差制造张力\n- 气氛靠细节，少空洞形容词\n",
       "outline-hint.md": "每章至少推进一条线索或反转，章末留疑问。\n",
       "taboo.md": "- 突然揭晓无铺垫\n- 无意义误导\n",
+    },
+    "compliance-cn": {
+      "rules.md":
+        "- 自杀教程 | 高危 | 删改具体方法描写\n- 详细解剖 | 中 | 改为侧面暗示\n- 血腥淋漓 | 建议 | 收敛感官描写\n- 未成年怀孕 | 高危 | 回避或改成年角色\n- 人肉搜索 | 中 | 改为调查/打听\n",
     },
   };
   return map[packId]?.[file] || "";

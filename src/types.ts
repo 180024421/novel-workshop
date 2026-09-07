@@ -206,7 +206,9 @@ declare global {
       readJson: <T>(p: string, fb?: T) => Promise<T>;
       writeJson: (p: string, d: unknown) => Promise<boolean>;
       deletePath: (p: string) => Promise<boolean>;
-      listDir: (p: string) => Promise<{ name: string; path: string }[]>;
+      listDir: (
+        p: string
+      ) => Promise<{ name: string; path: string; mtimeMs?: number; size?: number }[]>;
       joinPath: (...parts: string[]) => Promise<string>;
       openExternal: (url: string) => Promise<void>;
       pickFiles: (opts?: {

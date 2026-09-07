@@ -118,6 +118,41 @@ export function splitManuscript(text: string): ManuscriptChapter[] {
   return [{ id: "第1章", title: "导入", body: raw.trim() }];
 }
 
+/** 预览表：更新某一章标题/正文 */
+export function updateManuscriptChapter(
+  chapters: ManuscriptChapter[],
+  index: number,
+  patch: Partial<Pick<ManuscriptChapter, "title" | "body" | "id">>
+): ManuscriptChapter[] {
+  return chapters.map((c, i) => (i === index ? { ...c, ...patch } : c));
+}
+
+/** 删除预览章；可选重编号 */
+export function removeManuscriptChapter(
+  chapters: ManuscriptChapter[],
+  index: number,
+  renumber = true
+): ManuscriptChapter[] {
+  const next = chapters.filter((_, i) => i !== index);
+  if (!renumber) return next;
+  return next.map((c, i) => ({ ...c, id: `第${i + 1}章` }));
+}
+
+/** 合并到上一章（正文拼接），删除当前行 */
+export function mergeManuscriptChapterUp(
+  chapters: ManuscriptChapter[],
+  index: number
+): ManuscriptChapter[] {
+  if (index <= 0 || index >= chapters.length) return chapters;
+  const prev = chapters[index - 1];
+  const cur = chapters[index];
+  const mergedBody = [prev.body.trim(), cur.body.trim()].filter(Boolean).join("\n\n");
+  const next = chapters.map((c, i) =>
+    i === index - 1 ? { ...c, body: mergedBody } : c
+  );
+  return removeManuscriptChapter(next, index, true);
+}
+
 /** 估算是否超过导入体积上限（按 UTF-8 近似字节） */
 export const IMPORT_MAX_BYTES = 20 * 1024 * 1024;
 

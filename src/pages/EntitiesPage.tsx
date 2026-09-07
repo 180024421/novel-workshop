@@ -44,7 +44,7 @@ export function EntitiesPage() {
 
   async function deleteCur() {
     if (!cur || !project) return;
-    if (!confirmAction(`确定删除实体「${cur.name || cur.id}」？`)) return;
+    if (!(await confirmAction(`确定删除实体「${cur.name || cur.id}」？`))) return;
     setErr("");
     await deleteEntity(project.root, join, cur);
     setCur(null);

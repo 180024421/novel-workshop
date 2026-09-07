@@ -3,7 +3,7 @@ import { backupChapter, listBackups, restoreBackup, type BackupMeta } from "../l
 import { alignBeatsToBody, type BeatAlignRow } from "../lib/beatsAlign";
 import { writeOneChapter, type WritePreset } from "../lib/chapterWrite";
 import { loadCharactersMarkdown } from "../lib/characters";
-import { confirmOverwrite, isAbortError } from "../lib/confirm";
+import { confirmOverwrite, isAbortError, confirmAction } from "../lib/confirm";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
 import { craftFixPrompt } from "../lib/craftFix";
 import { loadDraftB, saveDraftB, type DraftSlot } from "../lib/dualDraft";
@@ -287,7 +287,7 @@ export function ChapterTools(props: Props) {
       onErr("细纲里还没有本章场次，请先在「细纲」写好对应章节");
       return;
     }
-    if (!resume && doc.trim() && !confirmOverwrite(`${chapterId} 正文`)) return;
+    if (!resume && doc.trim() && !(await confirmOverwrite(`${chapterId} 正文`))) return;
 
     if (!resume && settings.confirmCostBeforeWrite !== false && !skipCostConfirmRef.current) {
       pendingWriteResumeRef.current = resume;
@@ -426,7 +426,7 @@ export function ChapterTools(props: Props) {
       onErr("还没有 B 稿");
       return;
     }
-    if (doc.trim() && !confirmOverwrite("用 B 稿覆盖编辑器内容（未升主前可再存 A）")) return;
+    if (doc.trim() && !(await confirmOverwrite("用 B 稿覆盖编辑器内容（未升主前可再存 A）"))) return;
     draftAHoldRef.current = doc;
     setDoc(b);
     setDraftSlot("B");
@@ -457,7 +457,7 @@ export function ChapterTools(props: Props) {
       onErr("还没有 B 稿");
       return;
     }
-    if (!window.confirm("将 B 稿升为主稿并覆盖 chapters 当前正文？此操作不可自动撤销。")) {
+    if (!(await confirmAction("将 B 稿升为主稿并覆盖 chapters 当前正文？此操作不可自动撤销。"))) {
       return;
     }
     if (doc.trim()) {
@@ -851,7 +851,7 @@ export function ChapterTools(props: Props) {
   }
 
   async function doRestore(meta: BackupMeta) {
-    if (!confirmOverwrite("用备份覆盖当前正文")) return;
+    if (!(await confirmOverwrite("用备份覆盖当前正文"))) return;
     const text = await restoreBackup(root, join, meta);
     setDoc(text);
     onHint("已从备份恢复");
@@ -975,6 +975,23 @@ export function ChapterTools(props: Props) {
           onClick={() => setNotesOpen((v) => !v)}
         >
           {notesOpen ? "收起备注" : "本章备注"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-compact"
+          disabled={busy || !doc.trim()}
+          onClick={() => void runLocalScan()}
+        >
+          扫描
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-compact"
+          disabled={busy || craftFixBusy || !doc.trim()}
+          onClick={() => void runCraftFix()}
+          title="工艺润色后强制打开改前/改后 Diff"
+        >
+          {craftFixBusy ? "润色中…" : "工艺润色"}
         </button>
         <button
           type="button"
@@ -1105,24 +1122,7 @@ export function ChapterTools(props: Props) {
             className="btn btn-ghost btn-compact"
             onClick={() => setPolishOpen((v) => !v)}
           >
-            {polishOpen ? "收起润色" : "润色"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-compact"
-            disabled={busy || !doc.trim()}
-            onClick={() => void runLocalScan()}
-          >
-            扫描
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-compact"
-            disabled={busy || craftFixBusy || !doc.trim()}
-            onClick={() => void runCraftFix()}
-            title="按工艺红线一键润色（先备份）"
-          >
-            工艺润色
+            {polishOpen ? "收起选区润色" : "选区润色"}
           </button>
           <button
             type="button"

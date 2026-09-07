@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { EmptyGuide, buildProjectChecklist } from "../components/EmptyGuide";
+import { EmptyGuide, buildImportReviseChecklist, buildProjectChecklist } from "../components/EmptyGuide";
 import { writeOneChapter } from "../lib/chapterWrite";
 import { exportBook, exportVolumeZip, type ExportFormat } from "../lib/exportBook";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
@@ -188,26 +188,45 @@ export function StatusPage() {
         <p className="muted">进度、钩子回收、待重试队列、平台导出。</p>
       </div>
 
-      {(!prog?.hasOutline ||
-        !(prog.hasBible || prog.hasSeed) ||
-        prog.beatsDone === 0 ||
-        !prog.chapterRows.some((r) => r.hasChapter)) && (
+      {prog?.chapterRows.some((r) => r.hasChapter) &&
+      !(prog.hasBible || prog.hasSeed) &&
+      !prog.hasOutline ? (
         <EmptyGuide
-          title="开书清单"
-          steps={buildProjectChecklist({
-            hasBible: Boolean(prog?.hasBible || prog?.hasSeed),
-            hasOutline: Boolean(prog?.hasOutline),
+          title="导入改稿清单"
+          steps={buildImportReviseChecklist({
             hasBeats: (prog?.beatsDone || 0) > 0,
             hasChapter1: Boolean(
               prog?.chapterRows.find((r) => r.id === "第1章")?.hasChapter ||
                 prog?.chapterRows[0]?.hasChapter
             ),
-          }).map((s) =>
-            s.done ? `✓ ${s.text}` : { text: s.text, to: s.to }
-          )}
-          primaryTo="/app/idea"
-          primaryLabel="从设定开始"
+          }).map((s) => (s.done ? `✓ ${s.text}` : { text: s.text, to: s.to }))}
+          primaryTo="/app/chapter"
+          primaryLabel="去第1章润色"
+          secondaryTo="/app/volumes"
+          secondaryLabel="卷章管理"
         />
+      ) : (
+        (!prog?.hasOutline ||
+          !(prog.hasBible || prog.hasSeed) ||
+          prog.beatsDone === 0 ||
+          !prog.chapterRows.some((r) => r.hasChapter)) && (
+          <EmptyGuide
+            title="开书清单"
+            steps={buildProjectChecklist({
+              hasBible: Boolean(prog?.hasBible || prog?.hasSeed),
+              hasOutline: Boolean(prog?.hasOutline),
+              hasBeats: (prog?.beatsDone || 0) > 0,
+              hasChapter1: Boolean(
+                prog?.chapterRows.find((r) => r.id === "第1章")?.hasChapter ||
+                  prog?.chapterRows[0]?.hasChapter
+              ),
+            }).map((s) =>
+              s.done ? `✓ ${s.text}` : { text: s.text, to: s.to }
+            )}
+            primaryTo="/app/idea"
+            primaryLabel="从设定开始"
+          />
+        )
       )}
 
       <div className="panel stack">

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendChapterListLine,
+  buildVolumeBeatsFromChapterEntries,
   emptyVolumeBeatsTemplate,
   extractChapterBeats,
+  nextChapterNumber,
   parseVolumes,
+  removeChapterListLine,
   reorderVolumeChaptersMd,
 } from "./volumes";
 
@@ -131,5 +135,32 @@ describe("emptyVolumeBeatsTemplate", () => {
     expect(t).toContain("起势");
     expect(t).toMatch(/##\s*章节列表/);
     expect(t).toMatch(/##\s*分章细纲/);
+  });
+});
+
+describe("bootstrap helpers", () => {
+  it("builds volume beats from chapter entries", () => {
+    const md = buildVolumeBeatsFromChapterEntries("第1卷", "导入", [
+      { id: "第1章", title: "开端" },
+      { id: "第2章", title: "冲突" },
+    ]);
+    expect(md).toContain("- 第1章 开端");
+    expect(md).toContain("- 第2章 冲突");
+  });
+
+  it("appends and removes chapter list lines", () => {
+    let md = emptyVolumeBeatsTemplate("第1卷");
+    md = appendChapterListLine(md, "第1章", "开端");
+    expect(md).toContain("- 第1章 开端");
+    md = appendChapterListLine(md, "第2章", "发展");
+    expect(md).toContain("- 第2章 发展");
+    md = removeChapterListLine(md, "第1章");
+    expect(md).not.toMatch(/第\s*1\s*章/);
+    expect(md).toContain("- 第2章 发展");
+  });
+
+  it("nextChapterNumber", () => {
+    expect(nextChapterNumber(["第1章", "第3章"])).toBe(4);
+    expect(nextChapterNumber([])).toBe(1);
   });
 });

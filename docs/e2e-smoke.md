@@ -1,20 +1,39 @@
-# Wave 7 手测清单（e2e-smoke）
+# Wave 7+ / 0.5 手测清单（e2e-smoke）
 
-版本目标：`0.4.0`。在桌面端 `npm run dev:app` 打开一本测试书后逐项勾选。
+版本目标：`0.5.0`。在桌面端 `npm run dev:app` 打开一本测试书后逐项勾选。
+
+## 0.5 加固与新功能
+
+- [ ] 设置 / 关于里显示的版本为 `0.5.0`（非 0.1.0）；`userData/logs/version.log` 无 WARN
+- [ ] 危险操作与「新建章」走应用内确认条，不再弹系统 confirm/prompt
+- [ ] 大书切路由侧栏进度不卡顿（进度缓存命中）
+- [ ] `/app/compliance` 全书过审扫描；应用建议会先备份
+- [ ] 扩展包「学我的文风」出草稿 → 确认合并 style.md；导入向导勾选同学风
+- [ ] 健康分有 5 维含「过审风险」；页内可跑跨章一致性并落 `continuity/consistency-check.md`
+- [ ] 统计页连载排期：改「已发布到」/日更后存稿与风险变化；存稿不足 3 章时侧栏「写作统计」出「断更」角标
+- [ ] 设置 → 写作习惯可改连载字段（有打开书稿时）
 
 ## Wave 7 新能力
 
 - [ ] ChapterTools「工艺润色」：扫描命中后可润色；会先备份再替换正文
 - [ ] 写章流水线进行中点「本场后停」：当前场次写完后停，保留已写
-- [ ] 写章前费用确认条（非 `window.confirm`）：确认写 / 取消
-- [ ] 「上下文预览」勾选块 → 写入本章备注 `【上下文预览注入】`，写章可注入
+- [ ] 写章前费用确认条（非 window.confirm）：确认写 / 取消
+- [ ] 「上下文预览」勾选块 → 写入本章备注或显式 contextBlocks
 - [ ] `/app/summaries` 可编辑并保存 `continuity/summaries.json`
-- [ ] `/app/voice-check`：勾选近章 → 声口体检报告
+- [ ] `/app/voice-check`：勾选近章 → 声口体检报告；一键改对白
 - [ ] 扩展包页「一键补工艺红线」合并 style/taboo
 - [ ] 侧栏工具分组：写作 / 设定 / 质检 / 导出
 - [ ] 开书清单未完成时显示进度条（如 2/4）
 - [ ] 书内搜索跳章后选中关键词（CodeMirror / textarea 均可）
-- [ ] 主进程异常写入 `userData/logs/crash.log`（可人为触发验证）
+- [ ] 主进程异常写入 `userData/logs/crash.log`；设置里可查看/清空
+- [ ] 设置里可清理修订备份；统计页有近 7 日周报
+
+## 导入改稿
+
+- [ ] 导入预览可改标题 / 合并 / 删章
+- [ ] 第 3 步勾选目录 + 工艺（+ 可选学文风）后进润色
+- [ ] 卷章管理 / 侧栏可 +新建卷 / +新建章
+- [ ] 改稿队列可批量工艺润色
 
 ## 写章与知识库（回归）
 
@@ -43,6 +62,5 @@
 
 ```bash
 npm test
+npx tsc -b --pretty false
 ```
-
-覆盖 craftFix / craftUpgrade / voiceCheck / writeContextPreview 等 Wave 7 helpers。

@@ -1,3 +1,7 @@
+import {
+  buildChapterIndex,
+  chapterDirSignature,
+} from "./chapterFiles";
 import { parseChapterList } from "./prompts";
 import { extractChapterBeats, loadProjectVolumes } from "./volumes";
 
@@ -34,6 +38,41 @@ export function countTextWords(text: string): number {
   return countWords(text);
 }
 
+type ProgressCacheEntry = {
+  chapSig: string;
+  beatSig: string;
+  metaSig: string;
+  /** 单章文件签名 id → name:mtime:size */
+  fileSigById: Map<string, string>;
+  wordById: Map<string, number>;
+  progress: ProjectProgress;
+};
+
+const progressCache = new Map<string, ProgressCacheEntry>();
+
+export function invalidateProgressCache(root?: string) {
+  if (root) progressCache.delete(root);
+  else progressCache.clear();
+}
+
+function metaSignature(seed: string, bible: string, outline: string): string {
+  return `${seed.length}:${bible.length}:${outline.length}:${outline.slice(0, 40)}`;
+}
+
+function beatSignature(
+  beatFiles: { name: string; mtimeMs?: number; size?: number }[]
+): string {
+  return beatFiles
+    .filter((f) => f.name.endsWith(".md"))
+    .map((f) => `${f.name}:${f.mtimeMs ?? 0}:${f.size ?? 0}`)
+    .sort()
+    .join("|");
+}
+
+function fileSig(f: { name: string; mtimeMs?: number; size?: number }): string {
+  return `${f.name}:${f.mtimeMs ?? 0}:${f.size ?? 0}`;
+}
+
 export async function loadProjectProgress(
   root: string,
   join: (...p: string[]) => Promise<string>
@@ -59,9 +98,21 @@ export async function loadProjectProgress(
     window.moshu.listDir(await join(root, "chapters")),
   ]);
 
+  const chapSig = chapterDirSignature(chapterFiles);
+  const beatSig = beatSignature(beatFiles);
+  const metaSig = metaSignature(seed, bible, outline);
+  const cached = progressCache.get(root);
+  if (
+    cached &&
+    cached.chapSig === chapSig &&
+    cached.beatSig === beatSig &&
+    cached.metaSig === metaSig
+  ) {
+    return cached.progress;
+  }
+
   const volumes = await loadProjectVolumes({ root, join, outline });
   const chapters = volumes.flatMap((v) => v.chapters);
-  // 兼容：若细纲还没有章，再看总纲里是否残留旧章目录
   const legacyChapters = chapters.length ? chapters : parseChapterList(outline);
 
   const beatSet = new Set(
@@ -86,11 +137,26 @@ export async function loadProjectProgress(
     return extractChapterBeats(volMd, chapterId).trim().length > 0;
   }
 
-  const chapterById = new Map<string, { path: string; name: string }>();
-  for (const f of chapterFiles) {
-    if (!f.name.endsWith(".md")) continue;
-    const m = f.name.match(/^(第\d+章)/);
-    if (m) chapterById.set(m[1], f);
+  const chapterById = buildChapterIndex(chapterFiles);
+  const prevFileSig = cached?.fileSigById || new Map<string, string>();
+  const prevWords = cached?.wordById || new Map<string, number>();
+  const fileSigById = new Map<string, string>();
+  const wordById = new Map<string, number>();
+
+  async function wordsFor(id: string): Promise<number> {
+    const chFile = chapterById.get(id);
+    if (!chFile) return 0;
+    const sig = fileSig(chFile);
+    fileSigById.set(id, sig);
+    if (prevFileSig.get(id) === sig && prevWords.has(id)) {
+      const w = prevWords.get(id) || 0;
+      wordById.set(id, w);
+      return w;
+    }
+    const body = await window.moshu!.readText(chFile.path);
+    const w = countWords(body);
+    wordById.set(id, w);
+    return w;
   }
 
   let wordsTotal = 0;
@@ -104,15 +170,9 @@ export async function loadProjectProgress(
   for (const c of ids) {
     if (rows.some((r) => r.id === c.id)) continue;
     const hasBeats = chapterHasBeats(c.id);
-    const chFile = chapterById.get(c.id);
-    let words = 0;
-    let hasChapter = false;
-    if (chFile) {
-      const body = await window.moshu.readText(chFile.path);
-      words = countWords(body);
-      hasChapter = body.trim().length > 0;
-      wordsTotal += words;
-    }
+    const words = await wordsFor(c.id);
+    const hasChapter = words > 0 && chapterById.has(c.id);
+    wordsTotal += words;
     const vol = volumes.find((v) => v.chapters.some((x) => x.id === c.id)) || volumes[0];
     rows.push({
       id: c.id,
@@ -126,16 +186,15 @@ export async function loadProjectProgress(
 
   for (const [id, f] of chapterById) {
     if (rows.some((r) => r.id === id)) continue;
-    const body = await window.moshu.readText(f.path);
-    const words = countWords(body);
+    const words = await wordsFor(id);
     wordsTotal += words;
     const vol = volumes.find((v) => v.chapters.some((x) => x.id === id)) || volumes[0];
     rows.push({
       id,
-      title: f.name.replace(/^第\d+章_/, "").replace(/\.md$/, ""),
+      title: f.title,
       volumeId: vol?.id || "第1卷",
       hasBeats: chapterHasBeats(id),
-      hasChapter: body.trim().length > 0,
+      hasChapter: words > 0,
       words,
     });
   }
@@ -146,10 +205,9 @@ export async function loadProjectProgress(
     return na - nb;
   });
 
-  return {
+  const progress: ProjectProgress = {
     hasSeed: seed.trim().length > 0,
     hasBible: bible.trim().length > 0,
-    // 总纲：有成文即可（不再要求识别出章节）
     hasOutline: outline.trim().length > 80,
     chapterTotal: rows.length || legacyChapters.length,
     beatsDone: rows.filter((r) => r.hasBeats).length,
@@ -163,4 +221,15 @@ export async function loadProjectProgress(
       hasContent: v.chapters.length > 0 || Boolean(volumeBeatText.get(v.id)?.trim()),
     })),
   };
+
+  progressCache.set(root, {
+    chapSig,
+    beatSig,
+    metaSig,
+    fileSigById,
+    wordById,
+    progress,
+  });
+
+  return progress;
 }

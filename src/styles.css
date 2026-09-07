@@ -409,6 +409,24 @@ a {
   background: rgba(212, 165, 116, 0.08);
 }
 
+.confirm-host-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18vh;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.confirm-host-bar {
+  max-width: 480px;
+  width: min(92vw, 480px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  margin: 0;
+}
+
 .checklist-progress-bar {
   height: 6px;
   max-width: 280px;

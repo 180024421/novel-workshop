@@ -357,6 +357,13 @@ export async function runBatchWrite(opts: {
   };
   opts.onProgress?.({ ...progress, log: [...progress.log] });
 
+  const skipExisting = session?.skipExisting ?? opts.job.skipExisting;
+  const chaptersDir = await opts.join(opts.root, "chapters");
+  const chapterFilesOnce =
+    skipExisting && mode !== "retryFailed"
+      ? await window.moshu!.listDir(chaptersDir)
+      : [];
+
   for (let i = 0; i < queue.length; i++) {
     if (opts.signal?.aborted) {
       progress.log.push("已停止");
@@ -366,10 +373,8 @@ export async function runBatchWrite(opts: {
     progress.current = `${ch.id} ${ch.title}`;
     opts.onProgress?.({ ...progress, log: [...progress.log], session });
 
-    const skipExisting = session?.skipExisting ?? opts.job.skipExisting;
     if (skipExisting && mode !== "retryFailed") {
-      const files = await window.moshu!.listDir(await opts.join(opts.root, "chapters"));
-      const hit = files.find(
+      const hit = chapterFilesOnce.find(
         (f) => f.name === `${ch.id}.md` || f.name.startsWith(`${ch.id}_`)
       );
       if (hit) {

@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { parseChapterFileName } from "./chapterFiles";
 import { countTextWords } from "./projectProgress";
 
 export type RichChapter = {
@@ -219,10 +220,10 @@ export async function loadProjectChapters(
   for (const f of md) {
     const body = (await window.moshu.readText(f.path)).trim();
     if (!body) continue;
-    const m = f.name.match(/^(第\d+章)_(.+)\.md$/);
+    const parsed = parseChapterFileName(f.name);
     out.push({
-      id: m?.[1] || f.name.replace(/\.md$/, ""),
-      title: m?.[2] || "未命名",
+      id: parsed?.id || f.name.replace(/\.md$/, ""),
+      title: parsed?.title || "未命名",
       body,
     });
   }

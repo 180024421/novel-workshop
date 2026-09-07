@@ -17,8 +17,13 @@ import { projectHasCraftRules } from "../lib/bookHealth";
 import { loadJobQueue } from "../lib/jobQueue";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
 import { loadSessionForRoot } from "../lib/session";
-import { ensureVolumeBeatsFile } from "../lib/volumes";
+import { addChapterToVolume, createNextVolume } from "../lib/volumes";
+import { promptText } from "../lib/confirm";
 import { getTodayUsage, goalProgress, type DayUsage } from "../lib/usageLedger";
+import {
+  computeSerialStatus,
+  loadSerialPlan,
+} from "../lib/serialPlan";
 import { useApp } from "../state/AppContext";
 
 const mainLinks = [
@@ -51,6 +56,7 @@ const toolGroups: { label: string; links: { to: string; label: string }[] }[] = 
     label: "质检",
     links: [
       { to: "/app/health", label: "本书健康分" },
+      { to: "/app/compliance", label: "过审检查" },
       { to: "/app/revise", label: "改稿队列" },
       { to: "/app/timeline", label: "时间线" },
       { to: "/app/voice-check", label: "声口体检" },
@@ -94,6 +100,7 @@ export function AppLayout() {
   const [today, setToday] = useState<DayUsage>({ words: 0, costCny: 0 });
   const [jobCount, setJobCount] = useState(0);
   const [hasCraft, setHasCraft] = useState(false);
+  const [serialWarn, setSerialWarn] = useState(false);
   const [chapterFilter, setChapterFilter] = useState("");
   const chapterListRef = useRef<HTMLDivElement>(null);
   const [toolsOpen, setToolsOpen] = useState(() => {
@@ -173,21 +180,31 @@ export function AppLayout() {
       setProg(null);
       setJobCount(0);
       setHasCraft(false);
+      setSerialWarn(false);
       return;
     }
     try {
-      setProg(await loadProjectProgress(project.root, join));
+      const p = await loadProjectProgress(project.root, join);
+      setProg(p);
       const q = await loadJobQueue(project.root, join);
       setJobCount((q.jobs || []).length);
       setHasCraft(await projectHasCraftRules(project.root, join));
+      try {
+        const sp = await loadSerialPlan(project.root, join);
+        const st = computeSerialStatus(p, sp);
+        setSerialWarn(st.bufferChapters < 3 && st.writtenCount > 0);
+      } catch {
+        setSerialWarn(false);
+      }
     } catch {
-      /* ignore */
+      setToast("进度加载失败");
+      window.setTimeout(() => setToast(""), 2400);
     }
   }, [project, join]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh, loc.pathname, volumeId]);
+  }, [refresh, volumeId]);
 
   // 定时本地 zip 备份（小时级；0=关）
   useEffect(() => {
@@ -213,9 +230,13 @@ export function AppLayout() {
           await patchSettings({ lastAutoBackupAt: now });
           setToast("已自动备份");
           window.setTimeout(() => setToast(""), 2400);
+        } else {
+          setToast(r.message || "自动备份失败");
+          window.setTimeout(() => setToast(""), 3200);
         }
       } catch {
-        /* ignore */
+        setToast("自动备份失败");
+        window.setTimeout(() => setToast(""), 3200);
       } finally {
         busy = false;
       }
@@ -419,7 +440,7 @@ export function AppLayout() {
       await refreshRecent();
       nav(sess?.route || "/app/chapter");
     } catch {
-      /* ignore */
+      flash("切换书稿失败");
     }
   }
 
@@ -432,18 +453,32 @@ export function AppLayout() {
 
   async function addVolume() {
     if (!project || !window.moshu) return;
-    const rows = prog?.volumeRows || [];
-    const max = Math.max(
-      0,
-      ...rows.map((v) => Number(v.id.match(/\d+/)?.[0] || 0)),
-      Number(volumeId.match(/\d+/)?.[0] || 0)
-    );
-    const nextId = `第${max + 1}卷`;
-    await ensureVolumeBeatsFile({ root: project.root, join, volumeId: nextId });
-    setVolumeId(nextId);
+    const r = await createNextVolume({ root: project.root, join });
+    setVolumeId(r.volumeId);
     nav("/app/beats");
     void refresh();
-    flash(`已新建 ${nextId}`);
+    flash(`已新建 ${r.volumeId}`);
+  }
+
+  async function addChapter() {
+    if (!project || !window.moshu) return;
+    const title = (await promptText("新章标题", "未命名") || "").trim();
+    if (!title) return;
+    try {
+      const r = await addChapterToVolume({
+        root: project.root,
+        join,
+        volumeId: volumeId || "第1卷",
+        title,
+      });
+      setChapterId(r.chapterId);
+      setChapterTitle(r.title);
+      nav("/app/chapter");
+      void refresh();
+      flash(`已新建 ${r.chapterId} ${r.title}`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : String(e));
+    }
   }
 
   function mark(key: "idea" | "outline" | "beats" | "chapter") {
@@ -548,6 +583,12 @@ export function AppLayout() {
                       {l.to === "/app/status" && jobCount > 0 ? (
                         <span className="nav-progress warn"> {jobCount}</span>
                       ) : null}
+                      {l.to === "/app/stats" && serialWarn ? (
+                        <span className="nav-progress warn" title="存稿不足 3 章">
+                          {" "}
+                          断更
+                        </span>
+                      ) : null}
                       {l.to === "/app/settings" && hasUpdate ? (
                         <span className="nav-progress"> 新</span>
                       ) : null}
@@ -615,14 +656,23 @@ export function AppLayout() {
           </div>
         )}
 
-        {project && prog && prog.chapterRows.length > 0 && !loc.pathname.startsWith("/app/beats") && (
+        {project && prog && !loc.pathname.startsWith("/app/beats") && (
           <div className="chapter-nav">
             <div className="chapter-nav-head">
-              <span>章目录（跟细纲）</span>
-              <span className="muted">
-                {prog.chaptersDone}/{prog.chapterTotal}
-              </span>
+              <span>章目录</span>
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => void addChapter()}
+                title="新建空章并挂入当前卷"
+              >
+                +新建章
+              </button>
             </div>
+            <div className="muted" style={{ fontSize: 11, padding: "0 8px 4px" }}>
+              {prog.chaptersDone}/{prog.chapterTotal || prog.chapterRows.length}
+            </div>
+            {prog.chapterRows.length > 0 && (
             <input
               className="chapter-nav-filter"
               value={chapterFilter}
@@ -630,7 +680,13 @@ export function AppLayout() {
               placeholder="过滤章号/标题…"
               aria-label="过滤章节"
             />
+            )}
             <div className="chapter-nav-list" ref={chapterListRef}>
+              {!prog.chapterRows.length && (
+                <p className="muted" style={{ fontSize: 12, padding: 8 }}>
+                  暂无章节。可「+新建章」或到卷章管理从导入章生成目录。
+                </p>
+              )}
               {prog.chapterRows
                 .filter((r) => {
                   const q = chapterFilter.trim().toLowerCase();

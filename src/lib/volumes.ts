@@ -1,4 +1,5 @@
 import { parseChapterList, type ChapterEntry } from "./prompts";
+import { parseChapterFileName, safeChapterFileTitle } from "./chapterFiles";
 
 export type VolumeEntry = {
   id: string; // 第1卷
@@ -253,6 +254,221 @@ export function splitVolumeChapterBlocks(volumeMd: string): {
     preamble,
     blocks: blocks.map(({ id, text: t }) => ({ id, text: t })),
   };
+}
+
+/** 从章节列表构造卷细纲 Markdown（仅目录，场次可空） */
+export function buildVolumeBeatsFromChapterEntries(
+  volumeId: string,
+  title: string,
+  chapters: { id: string; title: string }[]
+): string {
+  const head = title.trim() && title.trim() !== volumeId ? `${volumeId} ${title.trim()}` : volumeId;
+  const list =
+    chapters.length > 0
+      ? chapters.map((c) => `- ${c.id} ${c.title || "未命名"}`).join("\n")
+      : "- 第N章 标题 —— 章核｜钩子";
+  return `# ${head}
+
+## 本卷简介
+
+（本卷目标、主线推进、情绪弧）
+
+## 章节列表
+
+${list}
+
+## 分章细纲
+
+`;
+}
+
+/** 在「章节列表」末尾追加一行；无列表区则追加整个列表段 */
+export function appendChapterListLine(
+  volumeMd: string,
+  chapterId: string,
+  chapterTitle: string
+): string {
+  const line = `- ${chapterId} ${chapterTitle.trim() || "未命名"}`;
+  const text = volumeMd || "";
+  const listMatch = text.match(
+    /(#{1,4}\s*章节列表[^\n]*\n)([\s\S]*?)(?=\n#{1,4}\s+(?!第\s*\d+\s*章)|$)/i
+  );
+  if (listMatch) {
+    const body = listMatch[2].replace(/\s+$/, "");
+    const cleaned = body
+      .split(/\r?\n/)
+      .filter((l) => !/第\s*N\s*章/.test(l) && l.trim())
+      .join("\n");
+    const newBody = (cleaned ? cleaned + "\n" : "") + line + "\n";
+    return text.replace(listMatch[0], listMatch[1] + newBody);
+  }
+  const insert = `\n\n## 章节列表\n\n${line}\n`;
+  if (/#{1,4}\s*分章细纲/i.test(text)) {
+    return text.replace(/(#{1,4}\s*分章细纲)/i, `${insert}\n$1`);
+  }
+  return (text.trimEnd() + insert).trim() + "\n";
+}
+
+/** 从章节列表移除某章（保留分章细纲块与正文文件） */
+export function removeChapterListLine(volumeMd: string, chapterId: string): string {
+  const n = chapterId.match(/\d+/)?.[0];
+  if (!n) return volumeMd;
+  const re = new RegExp(`^[-*•]\\s*第\\s*${n}\\s*章[^\\n]*\\n?`, "gim");
+  return volumeMd.replace(re, "");
+}
+
+export function nextChapterNumber(existingIds: string[]): number {
+  let max = 0;
+  for (const id of existingIds) {
+    const n = Number(String(id).match(/\d+/)?.[0] || 0);
+    if (n > max) max = n;
+  }
+  return max + 1;
+}
+
+export function nextVolumeNumber(existingIds: string[]): number {
+  return nextChapterNumber(existingIds.map((id) => id.replace("卷", "章")));
+}
+
+export type ListedChapterFile = {
+  id: string;
+  title: string;
+  path: string;
+  body: string;
+};
+
+/** 扫描 chapters/ 得到排序后的章列表 */
+export async function listChapterFilesFromDisk(
+  root: string,
+  join: (...p: string[]) => Promise<string>
+): Promise<ListedChapterFile[]> {
+  if (!window.moshu) return [];
+  const files = await window.moshu.listDir(await join(root, "chapters"));
+  const out: ListedChapterFile[] = [];
+  for (const f of files.filter((x) => x.name.endsWith(".md"))) {
+    const parsed = parseChapterFileName(f.name);
+    if (!parsed) continue;
+    const id = parsed.id;
+    let title = parsed.title;
+    let body = "";
+    try {
+      body = await window.moshu.readText(f.path);
+      const first = body.split(/\r?\n/).find((l) => l.trim());
+      if (first) {
+        const tm = first.replace(/^#+\s*/, "").match(/第\s*\d+\s*章\s*(.*)/);
+        if (tm?.[1]?.trim()) title = tm[1].trim();
+      }
+    } catch {
+      /* ignore */
+    }
+    out.push({ id, title, path: f.path, body });
+  }
+  out.sort((a, b) => {
+    const na = Number(a.id.match(/\d+/)?.[0] || 0);
+    const nb = Number(b.id.match(/\d+/)?.[0] || 0);
+    return na - nb;
+  });
+  return out;
+}
+
+/**
+ * 从已导入 chapters/ 生成卷细纲目录（默认第1卷；若传入 volumeGroups 则多卷）。
+ * 不覆盖已有非空卷细纲，除非 opts.overwrite。
+ */
+export async function bootstrapVolumeBeatsFromChapters(opts: {
+  root: string;
+  join: (...p: string[]) => Promise<string>;
+  overwrite?: boolean;
+  volumeId?: string;
+  volumeTitle?: string;
+}): Promise<{ volumesWritten: string[]; chapterCount: number }> {
+  if (!window.moshu) return { volumesWritten: [], chapterCount: 0 };
+  const chapters = await listChapterFilesFromDisk(opts.root, opts.join);
+  if (!chapters.length) return { volumesWritten: [], chapterCount: 0 };
+
+  const volumeId = opts.volumeId || "第1卷";
+  const path = await opts.join(opts.root, "beats", volumeBeatsPath(volumeId));
+  const existing = await window.moshu.readText(path);
+  if (existing.trim() && !opts.overwrite) {
+    // 合并：把磁盘章补进列表（缺的才追加）
+    let md = existing;
+    const listed = parseChapterList(existing).map((c) => c.id);
+    for (const ch of chapters) {
+      if (!listed.includes(ch.id)) {
+        md = appendChapterListLine(md, ch.id, ch.title);
+      }
+    }
+    await window.moshu.writeText(path, md);
+    return { volumesWritten: [volumeId], chapterCount: chapters.length };
+  }
+
+  const text = buildVolumeBeatsFromChapterEntries(
+    volumeId,
+    opts.volumeTitle || volumeId,
+    chapters.map((c) => ({ id: c.id, title: c.title }))
+  );
+  await window.moshu.writeText(path, text);
+  return { volumesWritten: [volumeId], chapterCount: chapters.length };
+}
+
+/** 新建空章：写 chapters 文件 + 挂进卷细纲章节列表 */
+export async function addChapterToVolume(opts: {
+  root: string;
+  join: (...p: string[]) => Promise<string>;
+  volumeId: string;
+  title: string;
+  /** 指定章号；默认取全书最大章号 +1 */
+  chapterNum?: number;
+  body?: string;
+}): Promise<{ chapterId: string; title: string; path: string }> {
+  if (!window.moshu) throw new Error("需要桌面端");
+  const title = (opts.title || "未命名").trim() || "未命名";
+  const disk = await listChapterFilesFromDisk(opts.root, opts.join);
+  const volumes = await loadProjectVolumes({ root: opts.root, join: opts.join });
+  const allIds = [
+    ...disk.map((c) => c.id),
+    ...volumes.flatMap((v) => v.chapters.map((c) => c.id)),
+  ];
+  const n = opts.chapterNum ?? nextChapterNumber(allIds);
+  const chapterId = `第${n}章`;
+  const fileName = `${chapterId}_${safeChapterFileTitle(title)}.md`;
+  const path = await opts.join(opts.root, "chapters", fileName);
+  const body =
+    opts.body?.trim() ||
+    `# ${chapterId} ${title}\n\n`;
+  await window.moshu.writeText(path, body);
+
+  await ensureVolumeBeatsFile({
+    root: opts.root,
+    join: opts.join,
+    volumeId: opts.volumeId,
+  });
+  const beatsPath = await opts.join(opts.root, "beats", volumeBeatsPath(opts.volumeId));
+  let md = await window.moshu.readText(beatsPath);
+  const listed = parseChapterList(md).map((c) => c.id);
+  if (!listed.includes(chapterId)) {
+    md = appendChapterListLine(md, chapterId, title);
+    await window.moshu.writeText(beatsPath, md);
+  }
+  return { chapterId, title, path };
+}
+
+/** 新建卷（封装 ensure + 返回 next id） */
+export async function createNextVolume(opts: {
+  root: string;
+  join: (...p: string[]) => Promise<string>;
+  title?: string;
+}): Promise<{ volumeId: string; created: boolean }> {
+  const volumes = await loadProjectVolumes({ root: opts.root, join: opts.join });
+  const n = nextVolumeNumber(volumes.map((v) => v.id));
+  const volumeId = `第${n}卷`;
+  const r = await ensureVolumeBeatsFile({
+    root: opts.root,
+    join: opts.join,
+    volumeId,
+    title: opts.title,
+  });
+  return { volumeId, created: r.created };
 }
 
 /** 按给定章 id 顺序重排分章细纲块；顺带重排「章节列表」里的条目顺序（若存在） */

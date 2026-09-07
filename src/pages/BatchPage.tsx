@@ -86,7 +86,7 @@ export function BatchPage() {
     if (
       mode === "new" &&
       !skipExisting &&
-      !confirmAction("未勾选「跳过已有」，已有正文的章节会被覆盖。确定继续？")
+      !(await confirmAction("未勾选「跳过已有」，已有正文的章节会被覆盖。确定继续？"))
     ) {
       return;
     }
@@ -162,7 +162,7 @@ export function BatchPage() {
 
   async function clearSession() {
     if (!project) return;
-    if (!confirmAction("清空批量会话记录？未完成章节不会被删除。")) return;
+    if (!(await confirmAction("清空批量会话记录？未完成章节不会被删除。"))) return;
     await clearBatchSession(project.root, join);
     setSession(null);
     setProgress(null);

@@ -253,7 +253,8 @@ export function useStudioDocument({
           try {
             await indexChapterToKb(project.root, join, chapterId, v);
           } catch {
-            /* ignore */
+            setHint("正文已自动保存（知识库索引失败）");
+            return;
           }
         }
         setHint("正文已自动保存");

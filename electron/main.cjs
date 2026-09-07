@@ -133,6 +133,11 @@ function createWindow() {
   setTimeout(() => {
     void (async () => {
       try {
+        try {
+          updater.warnIfVersionMismatch();
+        } catch {
+          /* ignore */
+        }
         const settings = await readJson(SETTINGS_FILE(), {});
         const tasks = [];
         if (settings.checkUpdateOnLaunch !== false) {
@@ -518,10 +523,23 @@ ipcMain.handle("fs:deletePath", async (_e, filePath) => {
 ipcMain.handle("fs:list", async (_e, dirPath) => {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isFile())
-      .map((e) => ({ name: e.name, path: path.join(dirPath, e.name) }))
-      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    const files = entries.filter((e) => e.isFile());
+    const rows = await Promise.all(
+      files.map(async (e) => {
+        const full = path.join(dirPath, e.name);
+        let mtimeMs = 0;
+        let size = 0;
+        try {
+          const st = await fs.stat(full);
+          mtimeMs = st.mtimeMs || 0;
+          size = st.size || 0;
+        } catch {
+          /* ignore */
+        }
+        return { name: e.name, path: full, mtimeMs, size };
+      })
+    );
+    return rows.sort((a, b) => a.name.localeCompare(b.name, "zh"));
   } catch {
     return [];
   }

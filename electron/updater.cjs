@@ -13,9 +13,45 @@ const { pipeline } = require("stream/promises");
 const { Readable } = require("stream");
 const crypto = require("crypto");
 
-/** 与 package.json version 对齐；发版时改这一处 */
-const APP_VERSION_NAME = "0.1.0";
-const APP_VERSION_CODE = 1;
+/**
+ * versionName 从 package.json 读取（electron-builder 注入），勿手写。
+ * versionCode 必须与管理端上传的 versionCode 一致；发版升版本时手动对齐（0.5.0 → 5）。
+ */
+function getAppVersionName() {
+  try {
+    return String(app.getVersion() || "0.5.0");
+  } catch {
+    return "0.5.0";
+  }
+}
+/** 必须与管理端上传的 versionCode 一致（0.5.0 → 5） */
+const APP_VERSION_CODE = 5;
+
+function appendVersionLog(line) {
+  try {
+    const dir = path.join(app.getPath("userData"), "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, "version.log"), `${new Date().toISOString()} ${line}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 启动时：versionName 与 versionCode 相对 package.json 不一致则写 warn */
+function warnIfVersionMismatch() {
+  const name = getAppVersionName();
+  const parts = parseVersionParts(name);
+  // 0.x.y → 期望 code = x；1.2.3 → 期望 102
+  const expected =
+    parts[0] === 0 ? parts[1] || 0 : (parts[0] || 0) * 100 + (parts[1] || 0);
+  if (APP_VERSION_CODE !== expected) {
+    appendVersionLog(
+      `WARN versionCode=${APP_VERSION_CODE} expected=${expected} from versionName=${name}`
+    );
+  } else {
+    appendVersionLog(`OK versionName=${name} versionCode=${APP_VERSION_CODE}`);
+  }
+}
 
 /** jiaoben 客户端更新通道 appKey */
 const APP_UPDATE_KEY = "dashuai-moshu";
@@ -50,7 +86,7 @@ function compareVersionName(a, b) {
 function needUpdate(remote) {
   if (!remote) return false;
   if (remote.versionCode > APP_VERSION_CODE) return true;
-  if (remote.versionName && compareVersionName(remote.versionName, APP_VERSION_NAME) > 0) {
+  if (remote.versionName && compareVersionName(remote.versionName, getAppVersionName()) > 0) {
     return true;
   }
   return false;
@@ -211,7 +247,7 @@ function buildHint(remote, hasUpdate) {
     return "暂无法连网检查 · 可稍后再试；配置与书稿在本地用户目录，更新不会丢";
   }
   const parts = [
-    `当前 ${APP_VERSION_NAME}（${APP_VERSION_CODE}）`,
+    `当前 ${getAppVersionName()}（${APP_VERSION_CODE}）`,
     `远端 ${remote.versionName || "-"}（${remote.versionCode || 0}）`,
   ];
   if (hasUpdate) {
@@ -504,7 +540,7 @@ function getDataPathsInfo() {
   return {
     userData: app.getPath("userData"),
     documentsProjects: path.join(app.getPath("documents"), "大帅墨枢"),
-    versionName: APP_VERSION_NAME,
+    versionName: getAppVersionName(),
     versionCode: APP_VERSION_CODE,
     appKey: APP_UPDATE_KEY,
     updateBase: PUBLIC_UPDATE_BASE,
@@ -517,11 +553,15 @@ function isForceUpdateBlocking() {
 }
 
 module.exports = {
-  APP_VERSION_NAME,
+  get APP_VERSION_NAME() {
+    return getAppVersionName();
+  },
   APP_VERSION_CODE,
   APP_UPDATE_KEY,
   APP_UPDATE_KEY_BETA,
   PUBLIC_UPDATE_BASE,
+  getAppVersionName,
+  warnIfVersionMismatch,
   probeUpdate,
   checkAndPrompt,
   downloadUpdate,

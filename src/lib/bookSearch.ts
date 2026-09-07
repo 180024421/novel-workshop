@@ -1,5 +1,7 @@
 /** 书内全文搜索 */
 
+import { parseChapterFileName } from "./chapterFiles";
+
 export type SearchHit = {
   chapterId: string;
   chapterTitle: string;
@@ -27,9 +29,9 @@ export async function searchInBook(opts: {
   for (const f of md) {
     const body = await window.moshu.readText(f.path);
     if (!body) continue;
-    const m = f.name.match(/^(第\d+章)_(.+)\.md$/);
-    const chapterId = m?.[1] || f.name.replace(/\.md$/, "");
-    const chapterTitle = m?.[2] || "";
+    const parsed = parseChapterFileName(f.name);
+    const chapterId = parsed?.id || f.name.replace(/\.md$/, "");
+    const chapterTitle = parsed?.title || "";
     const lines = body.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];

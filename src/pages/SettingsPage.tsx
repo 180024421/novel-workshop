@@ -21,6 +21,8 @@ import { DEFAULT_HOTKEYS, HOTKEY_LABELS, eventToHotkey, type HotkeyAction } from
 import { checkLicense, DEMO_LICENSE_KEY, isDemoLicenseAllowed } from "../lib/license";
 import { kbEmbeddingApiReady } from "../lib/kb";
 import { listBackups, pruneRevisions } from "../lib/backup";
+import { confirmAction } from "../lib/confirm";
+import { loadSerialPlan, saveSerialPlan, type SerialPlan } from "../lib/serialPlan";
 
 const QUICK_IDS = ["ModelScope", "DashScope", "Zhipu"];
 
@@ -124,6 +126,7 @@ export function SettingsPage() {
   const [dataNote, setDataNote] = useState("");
   const [versionLine, setVersionLine] = useState("");
   const [cardCode, setCardCode] = useState("");
+  const [serialPlan, setSerialPlan] = useState<SerialPlan | null>(null);
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [licenseMsg, setLicenseMsg] = useState("");
   const [fpLine, setFpLine] = useState("");
@@ -223,6 +226,14 @@ export function SettingsPage() {
   useEffect(() => {
     void loadPrices(async (...p: string[]) => p.join("/")).then(setPrices);
   }, []);
+
+  useEffect(() => {
+    if (!project) {
+      setSerialPlan(null);
+      return;
+    }
+    void loadSerialPlan(project.root, join).then(setSerialPlan);
+  }, [project, join]);
 
   useEffect(() => {
     if (!window.moshu?.getDataPaths) return;
@@ -757,6 +768,45 @@ export function SettingsPage() {
             onBlur={() => void persist(list, form)}
           />
         </div>
+        {project && serialPlan && (
+          <>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              连载排期（写入本书 continuity/serial.json，统计页同步）
+            </p>
+            <div className="field">
+              <label>已发布到第几章</label>
+              <input
+                value={serialPlan.publishedThrough}
+                onChange={(e) =>
+                  setSerialPlan({ ...serialPlan, publishedThrough: e.target.value })
+                }
+                onBlur={() => {
+                  if (!project || !serialPlan) return;
+                  void saveSerialPlan(project.root, join, serialPlan);
+                }}
+                placeholder="第12章"
+              />
+            </div>
+            <div className="field">
+              <label>日更章数</label>
+              <input
+                type="number"
+                min={1}
+                value={serialPlan.dailyChapters}
+                onChange={(e) =>
+                  setSerialPlan({
+                    ...serialPlan,
+                    dailyChapters: Math.max(1, Number(e.target.value) || 1),
+                  })
+                }
+                onBlur={() => {
+                  if (!project || !serialPlan) return;
+                  void saveSerialPlan(project.root, join, serialPlan);
+                }}
+              />
+            </div>
+          </>
+        )}
         <label className="muted" style={{ fontSize: 13 }}>
           <input
             type="checkbox"
@@ -1232,7 +1282,7 @@ export function SettingsPage() {
             onClick={() => {
               void (async () => {
                 if (!window.moshu?.licenseUnbind) return;
-                if (!confirm("确认解绑本机席位？解绑后需重新兑换或在其他设备腾出席位。")) return;
+                if (!(await confirmAction("确认解绑本机席位？解绑后需重新兑换或在其他设备腾出席位。"))) return;
                 setLicenseBusy(true);
                 try {
                   const st = await window.moshu.licenseUnbind();
@@ -1493,7 +1543,7 @@ export function SettingsPage() {
             className="btn btn-ghost btn-compact"
             onClick={async () => {
               if (!window.moshu?.clearCrashLog) return;
-              if (!window.confirm("清空崩溃日志？")) return;
+              if (!(await confirmAction("清空崩溃日志？"))) return;
               const r = await window.moshu.clearCrashLog();
               setCrashText("");
               setCrashBytes(0);
@@ -1551,11 +1601,11 @@ export function SettingsPage() {
               }
               const before = await listBackups(project.root, join);
               if (
-                !window.confirm(
+                !(await confirmAction(
                   `将清理修订备份：当前 ${before.length} 条，每章最多保留 ${pruneKeep} 条${
                     pruneDays > 0 ? `，优先删 ${pruneDays} 天前` : ""
                   }。继续？`
-                )
+                ))
               ) {
                 return;
               }

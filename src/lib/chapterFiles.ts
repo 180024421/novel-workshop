@@ -7,7 +7,58 @@ export function safeChapterFileTitle(title: string): string {
   return t || "未命名";
 }
 
-function isChapterFileForId(name: string, chapterId: string): boolean {
+/** 解析 `第N章.md` / `第N章_标题.md` */
+export function parseChapterFileName(
+  name: string
+): { id: string; title: string } | null {
+  const m = String(name || "").match(/^(第\d+章)(?:_(.+))?\.md$/i);
+  if (!m) return null;
+  return {
+    id: m[1],
+    title: (m[2] || "").trim() || "未命名",
+  };
+}
+
+export type ChapterFileEntry = {
+  path: string;
+  name: string;
+  title: string;
+  mtimeMs?: number;
+  size?: number;
+};
+
+/** 由 listDir 结果建章索引（同 id 后出现的覆盖前一个） */
+export function buildChapterIndex(
+  files: { name: string; path: string; mtimeMs?: number; size?: number }[]
+): Map<string, ChapterFileEntry> {
+  const map = new Map<string, ChapterFileEntry>();
+  for (const f of files) {
+    if (!f.name.endsWith(".md")) continue;
+    const parsed = parseChapterFileName(f.name);
+    if (!parsed) continue;
+    map.set(parsed.id, {
+      path: f.path,
+      name: f.name,
+      title: parsed.title,
+      mtimeMs: f.mtimeMs,
+      size: f.size,
+    });
+  }
+  return map;
+}
+
+/** 章目录签名：用于进度缓存失效判断 */
+export function chapterDirSignature(
+  files: { name: string; path: string; mtimeMs?: number; size?: number }[]
+): string {
+  return files
+    .filter((f) => f.name.endsWith(".md"))
+    .map((f) => `${f.name}:${f.mtimeMs ?? 0}:${f.size ?? 0}`)
+    .sort()
+    .join("|");
+}
+
+export function isChapterFileForId(name: string, chapterId: string): boolean {
   return name === `${chapterId}.md` || name.startsWith(`${chapterId}_`);
 }
 

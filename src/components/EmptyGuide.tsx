@@ -60,3 +60,28 @@ export function buildProjectChecklist(opts: {
     { text: "写第1章正文", to: "/app/chapter", done: opts.hasChapter1 },
   ];
 }
+
+/** 导入改稿短路径（与从零清单并列） */
+export function buildImportReviseChecklist(opts: {
+  hasCraft?: boolean;
+  hasBeats: boolean;
+  hasChapter1: boolean;
+}): { text: string; to: string; done: boolean }[] {
+  return [
+    {
+      text: "补工艺红线",
+      to: "/app/packs",
+      done: Boolean(opts.hasCraft),
+    },
+    {
+      text: "从章文件生成卷目录（或 +新建章）",
+      to: "/app/volumes",
+      done: opts.hasBeats,
+    },
+    {
+      text: "第1章扫描 → 工艺润色 → Diff",
+      to: "/app/chapter",
+      done: opts.hasChapter1,
+    },
+  ];
+}

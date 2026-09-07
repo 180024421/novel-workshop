@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { ConfirmHost } from "./components/ConfirmHost";
 import { AppProvider, useApp } from "./state/AppContext";
 import { AppLayout } from "./pages/AppLayout";
 import { HomePage } from "./pages/HomePage";
@@ -21,6 +22,7 @@ import { RevisePage } from "./pages/RevisePage";
 import { SummariesPage } from "./pages/SummariesPage";
 import { VoiceCheckPage } from "./pages/VoiceCheckPage";
 import { HealthPage } from "./pages/HealthPage";
+import { CompliancePage } from "./pages/CompliancePage";
 
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { bootstrapped, llmReady } = useApp();
@@ -38,6 +40,7 @@ function SetupGate({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AppProvider>
+      <ConfirmHost />
       <SetupGate>
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -63,6 +66,7 @@ export default function App() {
             <Route path="summaries" element={<SummariesPage />} />
             <Route path="voice-check" element={<VoiceCheckPage />} />
             <Route path="health" element={<HealthPage />} />
+            <Route path="compliance" element={<CompliancePage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

@@ -14,7 +14,7 @@ import {
 } from "./writeContextPreview";
 import { scoreFromProgress } from "./bookHealth";
 import { buildWeeklyReport } from "./usageLedger";
-import { DEMO_3MIN } from "./demoScript";
+import { DEMO_3MIN, DEMO_IMPORT_3MIN } from "./demoScript";
 
 describe("craftFixPrompt", () => {
   it("includes hits", () => {
@@ -114,7 +114,8 @@ describe("bookHealth", () => {
       craftSampleChapters: 1,
     });
     expect(r.score).toBeGreaterThan(50);
-    expect(r.dimensions).toHaveLength(4);
+    expect(r.dimensions).toHaveLength(5);
+    expect(r.dimensions.every((d) => d.max === 20)).toBe(true);
   });
 });
 
@@ -138,7 +139,8 @@ describe("weeklyReport", () => {
 });
 
 describe("demoScript", () => {
-  it("has 5 steps", () => {
+  it("has 5 steps for sample and import demos", () => {
     expect(DEMO_3MIN.steps.length).toBe(5);
+    expect(DEMO_IMPORT_3MIN.steps.length).toBe(5);
   });
 });

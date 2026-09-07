@@ -55,15 +55,15 @@ export function ChapterDiffDrawer(props: Props) {
     onApply(next);
   }
 
-  function applyAllRight() {
-    if (!confirmOverwrite("全部采纳当前正文（右侧）覆盖对比结果")) return;
+  async function applyAllRight() {
+    if (!(await confirmOverwrite("全部采纳当前正文（右侧）覆盖对比结果"))) return;
     onApply(acceptAllRight(rightText));
     onClose();
   }
 
   async function restoreWhole() {
     if (!backupMeta) return;
-    if (!confirmOverwrite("用备份整章覆盖当前正文")) return;
+    if (!(await confirmOverwrite("用备份整章覆盖当前正文"))) return;
     const text = await restoreBackup(root, join, backupMeta);
     onApply(text);
     onClose();
@@ -125,7 +125,7 @@ export function ChapterDiffDrawer(props: Props) {
           <button type="button" className="btn btn-primary btn-compact" onClick={applySelected}>
             采纳所选
           </button>
-          <button type="button" className="btn btn-ghost btn-compact" onClick={applyAllRight}>
+          <button type="button" className="btn btn-ghost btn-compact" onClick={() => void applyAllRight()}>
             全部用当前正文
           </button>
           {backupMeta && (
