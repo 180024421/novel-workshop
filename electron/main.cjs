@@ -12,6 +12,47 @@ const JSZip = require("jszip");
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mainWindow = null;
 
+function appendCrashLog(kind, err) {
+  try {
+    const dir = path.join(app.getPath("userData"), "logs");
+    fssync.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "crash.log");
+    const stamp = new Date().toISOString();
+    const msg =
+      err && typeof err === "object" && err.stack
+        ? String(err.stack)
+        : err instanceof Error
+          ? `${err.name}: ${err.message}`
+          : String(err);
+    const line = `[${stamp}] ${kind}\n${msg}\n\n`;
+    fssync.appendFileSync(file, line, "utf8");
+    // soft rotate ~1.5MB
+    try {
+      const st = fssync.statSync(file);
+      if (st.size > 1.5 * 1024 * 1024) {
+        const bak = path.join(dir, "crash.log.1");
+        try {
+          fssync.unlinkSync(bak);
+        } catch {
+          /* ignore */
+        }
+        fssync.renameSync(file, bak);
+      }
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* never throw from crash logger */
+  }
+}
+
+process.on("uncaughtException", (err) => {
+  appendCrashLog("uncaughtException", err);
+});
+process.on("unhandledRejection", (reason) => {
+  appendCrashLog("unhandledRejection", reason);
+});
+
 const RECENT_FILE = () => path.join(app.getPath("userData"), "recent-projects.json");
 const SETTINGS_FILE = () => path.join(app.getPath("userData"), "settings.json");
 const PROVIDERS_FILE = () => path.join(app.getPath("userData"), "providers.json");
