@@ -122,7 +122,7 @@ export async function writeOneChapter(opts: {
   const style = await w.readText(await opts.join(opts.root, "prompts", "style.md"));
   const characters = await loadCharactersMarkdown(opts.root, opts.join);
   const ledger = await loadHooksLedger(opts.root, opts.join);
-  const hooksBlock = formatOpenHooksForPrompt(ledger);
+  const hooksBlock = formatOpenHooksForPrompt(ledger, 12, opts.chapterId);
 
   const chaptersFiles = await w.listDir(await opts.join(opts.root, "chapters"));
   let prevTail = "";

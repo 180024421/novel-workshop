@@ -216,7 +216,7 @@ export function ChapterTools(props: Props) {
       characters,
       prevTail,
       kb: formatKbForPrompt(kbHits),
-      openHooks: formatOpenHooksForPrompt(ledger),
+      openHooks: formatOpenHooksForPrompt(ledger, 12, chapterId),
     };
   }
 

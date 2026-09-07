@@ -10,7 +10,29 @@ export type HookItem = {
   kind: "钩子" | "伏笔" | "人物" | "其他";
   status: "open" | "resolved";
   createdAt: string;
+  /** 期望回收章号，可空 */
+  dueChapter?: string;
+  note?: string;
 };
+
+export function chapterNum(id: string): number {
+  return Number(String(id).match(/\d+/)?.[0] || 0);
+}
+
+/** open 且已设 due，且当前章号大于 due → 过期 */
+export function isHookOverdue(h: HookItem, currentChapterId: string): boolean {
+  if (h.status !== "open" || !h.dueChapter) return false;
+  const due = chapterNum(h.dueChapter);
+  const cur = chapterNum(currentChapterId);
+  return due > 0 && cur > due;
+}
+
+export function isHookDueThisChapter(h: HookItem, currentChapterId: string): boolean {
+  if (!h.dueChapter) return false;
+  const due = chapterNum(h.dueChapter);
+  const cur = chapterNum(currentChapterId);
+  return due > 0 && cur === due;
+}
 
 export type HooksLedger = {
   items: HookItem[];
@@ -119,6 +141,35 @@ export async function reopenHook(
   return setHookStatus(root, join, hookId, "open");
 }
 
+export async function updateHookFields(
+  root: string,
+  join: (...p: string[]) => Promise<string>,
+  hookId: string,
+  patch: Pick<HookItem, "dueChapter" | "note" | "status">
+) {
+  const ledger = await loadHooksLedger(root, join);
+  const items = ledger.items.map((h) => (h.id === hookId ? { ...h, ...patch } : h));
+  await saveHooksLedger(root, join, { items, updatedAt: "" });
+}
+
+export async function setHookDue(
+  root: string,
+  join: (...p: string[]) => Promise<string>,
+  hookId: string,
+  dueChapter: string
+) {
+  const trimmed = dueChapter.trim();
+  const ledger = await loadHooksLedger(root, join);
+  const items = ledger.items.map((h) => {
+    if (h.id !== hookId) return h;
+    const next: HookItem = { ...h };
+    if (trimmed) next.dueChapter = trimmed;
+    else delete next.dueChapter;
+    return next;
+  });
+  await saveHooksLedger(root, join, { items, updatedAt: "" });
+}
+
 export async function resolveMany(
   root: string,
   join: (...p: string[]) => Promise<string>,
@@ -150,12 +201,24 @@ export async function resolveHooksBeforeChapter(
   await saveHooksLedger(root, join, { items, updatedAt: "" });
 }
 
-export function formatOpenHooksForPrompt(ledger: HooksLedger, limit = 12): string {
+export function formatOpenHooksForPrompt(
+  ledger: HooksLedger,
+  limit = 12,
+  currentChapterId?: string
+): string {
   const open = ledger.items.filter((h) => h.status === "open").slice(-limit);
   if (!open.length) return "";
   return (
     "上章/前文未解钩子与伏笔（本章应有呼应或推进，勿无故遗忘）：\n" +
-    open.map((h, i) => `${i + 1}. [${h.kind}/${h.fromChapter}] ${h.text}`).join("\n")
+    open
+      .map((h, i) => {
+        const dueThis = currentChapterId ? isHookDueThisChapter(h, currentChapterId) : false;
+        const due = h.dueChapter ? ` due=${h.dueChapter}` : "";
+        const mark = dueThis ? " **【本章必收】**" : "";
+        const note = h.note?.trim() ? `（${h.note.trim()}）` : "";
+        return `${i + 1}. [${h.kind}/${h.fromChapter}${due}]${mark} ${h.text}${note}`;
+      })
+      .join("\n")
   );
 }
 

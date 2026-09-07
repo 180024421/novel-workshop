@@ -207,7 +207,7 @@ export async function runWritePipeline(opts: {
     const style = await w.readText(await opts.join(opts.root, "prompts", "style.md"));
     const characters = await loadCharactersMarkdown(opts.root, opts.join);
     const ledger = await loadHooksLedger(opts.root, opts.join);
-    const hooks = formatOpenHooksForPrompt(ledger);
+    const hooks = formatOpenHooksForPrompt(ledger, 12, opts.chapterId);
     const chapterFiles = await w.listDir(await opts.join(opts.root, "chapters"));
     const prevFile = pickPrevChapterFile(chapterFiles, opts.chapterId);
     const prevTail = prevFile ? await w.readText(prevFile.path) : "";
