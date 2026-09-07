@@ -118,6 +118,8 @@ export async function runWritePipeline(opts: {
   skipPolish?: boolean;
   /** 运行中可轮询：为 true 时跳过润色 */
   getSkipPolish?: () => boolean;
+  /** 当前场写完后若返回 true，停止后续场次并保留已写 */
+  getStopAfterScene?: () => boolean;
   /** 从指定阶段续跑（需配合 resumeBody） */
   resumeFrom?: WritePipelinePhase;
   resumeBody?: string;
@@ -306,7 +308,13 @@ export async function runWritePipeline(opts: {
     }
 
     if (runFrom("scene")) {
+      let stoppedEarly = false;
       for (let i = 0; i < plan.length; i++) {
+        if (opts.signal?.aborted || opts.getStopAfterScene?.()) {
+          phaseLog.push(`已停止：保留已写 ${i}/${plan.length} 场`);
+          stoppedEarly = true;
+          break;
+        }
         const scene = plan[i];
         const prefix = body;
         const label = `③ 撰写场次 ${i + 1}/${plan.length}`;
@@ -320,37 +328,72 @@ export async function runWritePipeline(opts: {
           wordsTarget: targetWords,
           bodySoFar: body,
         });
-        const sceneText = await call(
-          scenePrompt({
-            brief,
-            scene,
-            sceneIndex: i + 1,
-            sceneTotal: plan.length,
-            prevSceneTail: body,
-            characters,
-            style,
-            isFirst: i === 0,
-            chapterTitle: opts.chapterTitle,
-            chapterId: opts.chapterId,
-          }),
-          chapterModel,
-          estimateMaxTokens(scene.budget),
-          (_delta, generated) => {
-            const bodySoFar = appendBody(prefix, generated);
-            streamedBody = bodySoFar;
-            emit({
-              phase: "scene",
-              label,
+        try {
+          const sceneText = await call(
+            scenePrompt({
+              brief,
+              scene,
               sceneIndex: i + 1,
               sceneTotal: plan.length,
-              wordsNow: countTextWords(bodySoFar),
-              wordsTarget: targetWords,
-              bodySoFar,
-            });
+              prevSceneTail: body,
+              characters,
+              style,
+              isFirst: i === 0,
+              chapterTitle: opts.chapterTitle,
+              chapterId: opts.chapterId,
+            }),
+            chapterModel,
+            estimateMaxTokens(scene.budget),
+            (_delta, generated) => {
+              const bodySoFar = appendBody(prefix, generated);
+              streamedBody = bodySoFar;
+              emit({
+                phase: "scene",
+                label,
+                sceneIndex: i + 1,
+                sceneTotal: plan.length,
+                wordsNow: countTextWords(bodySoFar),
+                wordsTarget: targetWords,
+                bodySoFar,
+              });
+            }
+          );
+          body = appendBody(body, sceneText);
+          streamedBody = body;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (opts.signal?.aborted || /已取消|AbortError/i.test(message)) {
+            // 中场取消：保留已拼接正文
+            body = streamedBody || body;
+            phaseLog.push(`场次 ${i + 1} 中断，已保留此前场次`);
+            stoppedEarly = true;
+            break;
           }
-        );
-        body = appendBody(body, sceneText);
-        streamedBody = body;
+          throw error;
+        }
+        if (opts.getStopAfterScene?.()) {
+          phaseLog.push(`用户要求停在本场后：已完成 ${i + 1}/${plan.length}`);
+          stoppedEarly = true;
+          break;
+        }
+      }
+      if (stoppedEarly) {
+        // 跳过后续门禁，直接落盘已写内容
+        logPhase("report", "提前结束：落盘已写场次");
+        if (opts.persist !== false && body.trim()) {
+          const fileName = `${opts.chapterId}_${opts.chapterTitle || "未命名"}.md`;
+          await w.writeText(await opts.join(opts.root, "chapters", fileName), body);
+        }
+        const words = countTextWords(body);
+        return {
+          body,
+          words,
+          targetWords,
+          ratio: words / targetWords,
+          continueRounds,
+          beatsReport: "（提前停止，未跑细纲自检）",
+          phaseLog,
+        };
       }
     } else if (opts.resumeBody != null) {
       body = opts.resumeBody;

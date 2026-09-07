@@ -123,6 +123,19 @@ export async function indexChapterToKb(
     chunks: nextChunks,
     updatedAt: new Date().toISOString(),
   });
+  // 失效该章旧向量缓存
+  try {
+    const vpath = await join(root, "kb", "vectors.json");
+    const store = await window.moshu.readJson<Record<string, number[]>>(vpath, {});
+    const next: Record<string, number[]> = {};
+    for (const [id, vec] of Object.entries(store || {})) {
+      if (id.startsWith(`${source}#`) || id.startsWith(source)) continue;
+      next[id] = vec;
+    }
+    await window.moshu.writeJson(vpath, next);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** 从细纲文字推断偏好标签 */

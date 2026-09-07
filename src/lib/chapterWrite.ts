@@ -83,6 +83,7 @@ export async function writeOneChapter(opts: {
   skipBeatsCheck?: boolean;
   skipPolish?: boolean;
   getSkipPolish?: () => boolean;
+  getStopAfterScene?: () => boolean;
   resumeFrom?: WritePipelinePhase;
   resumeBody?: string;
 }): Promise<string> {
@@ -108,6 +109,7 @@ export async function writeOneChapter(opts: {
       skipBeatsCheck: opts.skipBeatsCheck,
       skipPolish: opts.skipPolish,
       getSkipPolish: opts.getSkipPolish,
+      getStopAfterScene: opts.getStopAfterScene,
       resumeFrom: opts.resumeFrom,
       resumeBody: opts.resumeBody,
     });
