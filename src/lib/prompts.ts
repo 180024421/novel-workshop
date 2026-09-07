@@ -1,4 +1,4 @@
-import { craftSystemAddon, craftUserChecklist, craftPolishAddon } from "./craftRules";
+import { craftSystemAddon, craftUserChecklist } from "./craftRules";
 
 export const SYSTEM_WRITER = `你是「大帅墨枢」小说写作助手。写中文网文/长篇，注重画面、人物声口与节奏。
 规则：
