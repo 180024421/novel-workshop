@@ -33,6 +33,7 @@ const toolLinks = [
   { to: "/app/characters", label: "人物" },
   { to: "/app/knowledge", label: "知识库" },
   { to: "/app/timeline", label: "时间线" },
+  { to: "/app/stats", label: "写作统计" },
   { to: "/app/status", label: "进度导出" },
   { to: "/app/packs", label: "扩展包" },
   { to: "/app/settings", label: "设置" },

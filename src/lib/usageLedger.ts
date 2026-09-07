@@ -20,6 +20,26 @@ export function emptyDay(): DayUsage {
   return { words: 0, costCny: 0 };
 }
 
+/** 连续写作天数：自今天（若今日为 0 则自昨天）向前数有字日 */
+export function calcWritingStreak(
+  days: Record<string, DayUsage>,
+  now = new Date()
+): number {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today = days[todayKey(d)];
+  if (!today || today.words <= 0) {
+    d.setDate(d.getDate() - 1);
+  }
+  let streak = 0;
+  for (let i = 0; i < 400; i++) {
+    const cur = days[todayKey(d)];
+    if (!cur || cur.words <= 0) break;
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
 export async function loadUsage(): Promise<UsageStore> {
   if (window.moshu?.getUsage) {
     return window.moshu.getUsage();

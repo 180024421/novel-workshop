@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap");
+﻿@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;700&display=swap");
 
 :root {
   --bg: #000000;
@@ -1578,7 +1578,7 @@ a {
   background: var(--bg, #000);
 }
 
-/* —— IDE 工作室：中间编辑器 + 右侧 Agent —— */
+/* 鈥斺€?IDE 宸ヤ綔瀹わ細涓棿缂栬緫鍣?+ 鍙充晶 Agent 鈥斺€?*/
 .app-shell.ide-mode {
   grid-template-columns: 220px 1fr;
 }
@@ -2296,7 +2296,7 @@ a {
   color: var(--gold-bright);
 }
 
-/* 旧主题专用覆盖已改为 CSS 变量驱动，保留轻量兜底 */
+/* 鏃т富棰樹笓鐢ㄨ鐩栧凡鏀逛负 CSS 鍙橀噺椹卞姩锛屼繚鐣欒交閲忓厹搴?*/
 .app-shell.theme-paper .studio-agent,
 .app-shell.theme-sepia .studio-agent,
 .app-shell.theme-rose .studio-agent {
@@ -2342,3 +2342,56 @@ a {
 }
 
 
+
+.stats-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-bars-dense {
+  gap: 4px;
+}
+
+.stats-bar-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 72px;
+  gap: 8px;
+  align-items: center;
+}
+
+.stats-bars-dense .stats-bar-row {
+  grid-template-columns: 36px 1fr 48px;
+  gap: 6px;
+}
+
+.stats-bar-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.stats-bar-fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--gold, #d4a574);
+}
+
+.stats-bar-fill.cost {
+  background: rgba(120, 180, 220, 0.85);
+}
+
+.stats-bar-num {
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

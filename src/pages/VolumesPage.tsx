@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { humanizeLlmError } from "../lib/gateway";
+import { runVolumeCheck } from "../lib/volumeCheck";
 import {
   loadProjectVolumes,
   reorderVolumeChaptersMd,
@@ -17,12 +19,16 @@ export function VolumesPage() {
     setChapterId,
     setChapterTitle,
     volumeId,
+    settings,
+    providers,
   } = useApp();
   const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
   const [selectedId, setSelectedId] = useState(volumeId || "第1卷");
   const [busy, setBusy] = useState(false);
+  const [checkBusy, setCheckBusy] = useState(false);
   const [err, setErr] = useState("");
   const [hint, setHint] = useState("");
+  const [checkReport, setCheckReport] = useState("");
 
   const refresh = useCallback(async () => {
     if (!project || !window.moshu) return;
@@ -83,6 +89,30 @@ export function VolumesPage() {
     nav("/app/beats");
   }
 
+  async function doVolumeCheck() {
+    if (!project || !selected) return;
+    setCheckBusy(true);
+    setErr("");
+    setHint("");
+    setCheckReport("");
+    try {
+      const r = await runVolumeCheck({
+        root: project.root,
+        join,
+        volumeId: selected.id,
+        volumeTitle: selected.title,
+        settings,
+        providers,
+      });
+      setCheckReport(r.report);
+      setHint(`卷体检报告已写入 continuity/volume-check-${selected.id}.md`);
+    } catch (e) {
+      setErr(humanizeLlmError(e));
+    } finally {
+      setCheckBusy(false);
+    }
+  }
+
   if (!project) {
     return (
       <div className="panel">
@@ -104,7 +134,7 @@ export function VolumesPage() {
             key={v.id}
             type="button"
             className={`btn ${v.id === selected?.id ? "btn-primary" : ""}`}
-            disabled={busy}
+            disabled={busy || checkBusy}
             onClick={() => setSelectedId(v.id)}
           >
             {v.id}
@@ -134,6 +164,14 @@ export function VolumesPage() {
             >
               去正文
             </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || checkBusy}
+              onClick={() => void doVolumeCheck()}
+            >
+              {checkBusy ? "卷体检中…" : "卷体检"}
+            </button>
           </div>
 
           {!selected.chapters.length ? (
@@ -148,7 +186,7 @@ export function VolumesPage() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-compact"
-                  disabled={busy || i === 0}
+                  disabled={busy || checkBusy || i === 0}
                   onClick={() => void moveChapter(i, -1)}
                   title="上移"
                 >
@@ -157,7 +195,7 @@ export function VolumesPage() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-compact"
-                  disabled={busy || i === selected.chapters.length - 1}
+                  disabled={busy || checkBusy || i === selected.chapters.length - 1}
                   onClick={() => void moveChapter(i, 1)}
                   title="下移"
                 >
@@ -166,7 +204,7 @@ export function VolumesPage() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-compact"
-                  disabled={busy}
+                  disabled={busy || checkBusy}
                   onClick={() => goChapter(ch)}
                 >
                   打开
@@ -179,6 +217,14 @@ export function VolumesPage() {
 
       {hint && <p className="muted">{hint}</p>}
       {err && <p className="toast">{err}</p>}
+      {checkReport && (
+        <div className="panel stack">
+          <h3 style={{ margin: 0, fontFamily: "var(--font-brand)" }}>体检报告预览</h3>
+          <pre className="agent-md" style={{ whiteSpace: "pre-wrap", maxHeight: 420, overflow: "auto" }}>
+            {checkReport}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
