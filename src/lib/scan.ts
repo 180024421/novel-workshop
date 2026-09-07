@@ -46,16 +46,50 @@ export function scanTaboo(body: string, taboo: string[]): ScanHit[] {
   return hits;
 }
 
-/** 简单人名：取人物卡名，检查正文是否几乎不出现（可能写错名） */
-export function scanNamePresence(body: string, names: string[]): ScanHit[] {
+/**
+ * 从细纲中找出「应当出场」的人物卡名（细纲文本包含该姓名）。
+ * 避免对未出场配角误报。
+ */
+export function expectedNamesFromBeats(beats: string, cardNames: string[]): string[] {
+  const text = beats || "";
+  if (!text.trim()) return [];
+  const out: string[] = [];
+  for (const name of cardNames) {
+    const n = (name || "").trim();
+    if (n.length < 2) continue;
+    if (text.includes(n)) out.push(n);
+  }
+  return [...new Set(out)];
+}
+
+/** 仅检查 expectedNames：细纲要求出场但正文未出现 */
+export function scanNamePresence(body: string, expectedNames: string[]): ScanHit[] {
   const hits: ScanHit[] = [];
-  for (const name of names) {
+  for (const name of expectedNames) {
     if (!name || name.length < 2) continue;
     if (!body.includes(name)) {
       hits.push({
         kind: "人名疑似漂移",
         text: name,
-        detail: "人物卡中有此名，本章正文未出现（若本应出场请检查）",
+        detail: "细纲要求出场，本章正文未出现全名（请检查是否写错/漏写）",
+      });
+    }
+  }
+  return hits;
+}
+
+/** 全名未出现，但姓名末两字出现 → 弱提示可能用了简称 */
+export function scanNameShortAlias(body: string, expectedNames: string[]): ScanHit[] {
+  const hits: ScanHit[] = [];
+  for (const name of expectedNames) {
+    if (!name || name.length < 3) continue;
+    if (body.includes(name)) continue;
+    const suffix = name.slice(-2);
+    if (suffix.length === 2 && body.includes(suffix)) {
+      hits.push({
+        kind: "人名疑似漂移",
+        text: name,
+        detail: `正文出现后缀「${suffix}」但未写全名，疑似用了简称`,
       });
     }
   }
@@ -109,9 +143,14 @@ export async function runChapterScan(opts: {
   characterNames: string[];
 }): Promise<ScanHit[]> {
   const taboo = await loadTabooList(opts.root, opts.join);
+  const expected = expectedNamesFromBeats(opts.beats, opts.characterNames);
+  const missing = scanNamePresence(opts.body, expected);
+  const missingSet = new Set(missing.map((h) => h.text));
+  const aliases = scanNameShortAlias(opts.body, expected).filter((h) => !missingSet.has(h.text));
   return [
     ...scanTaboo(opts.body, taboo),
-    ...scanNamePresence(opts.body, opts.characterNames),
+    ...missing,
+    ...aliases,
     ...scanBeatsCoverage(opts.body, opts.beats),
   ];
 }
