@@ -5,7 +5,9 @@ import { writeOneChapter, type WritePreset } from "../lib/chapterWrite";
 import { loadCharactersMarkdown } from "../lib/characters";
 import { confirmOverwrite, isAbortError } from "../lib/confirm";
 import { estimateCostCny, formatCny, loadPrices, pickPrice } from "../lib/costEstimate";
+import { craftFixPrompt } from "../lib/craftFix";
 import { loadDraftB, saveDraftB, type DraftSlot } from "../lib/dualDraft";
+import { loadEntities } from "../lib/entities";
 import { chatCompletion, humanizeLlmError } from "../lib/gateway";
 import {
   extractAndSaveHooks,
@@ -29,13 +31,34 @@ import {
   revisePrompt,
   SYSTEM_WRITER,
 } from "../lib/prompts";
-import { runChapterScan, type ScanHit } from "../lib/scan";
+import { runChapterScan, scanCraftIssues, type ScanHit } from "../lib/scan";
+import {
+  formatRecentSummariesForPrompt,
+  loadSummaries,
+} from "../lib/summaries";
 import { addUsage } from "../lib/usageLedger";
 import { loadChapterBeatsText } from "../lib/volumes";
 import type { WritePipelinePhase, WritePipelineResult } from "../lib/writePipeline";
+import {
+  assembleContextFromBlocks,
+  toggleBlock,
+  type WriteContextBlock,
+} from "../lib/writeContextPreview";
 import type { AppSettings, KbChunk } from "../types";
 import type { ProviderConfig } from "../lib/providerPresets";
 import { ChapterDiffDrawer } from "./ChapterDiffDrawer";
+import { CostConfirmBar } from "./CostConfirmBar";
+
+const CTX_INJECT_START = "【上下文预览注入】";
+const CTX_INJECT_END = "【/上下文预览注入】";
+
+function upsertContextInject(notes: string, assembled: string): string {
+  const block = `${CTX_INJECT_START}\n${assembled.trim()}\n${CTX_INJECT_END}`;
+  const re = /【上下文预览注入】[\s\S]*?【\/上下文预览注入】/;
+  if (re.test(notes)) return notes.replace(re, block);
+  const cur = notes.trim();
+  return cur ? `${cur}\n\n${block}` : block;
+}
 
 type Props = {
   root: string;
@@ -114,6 +137,11 @@ export function ChapterTools(props: Props) {
   const [skipPolishLocal, setSkipPolishLocal] = useState(false);
   const [hasPipelineSnapshot, setHasPipelineSnapshot] = useState(false);
   const skipPolishNowRef = useRef(false);
+  const stopAfterSceneRef = useRef(false);
+  const skipCostConfirmRef = useRef(false);
+  const pendingWriteResumeRef = useRef<
+    { from: WritePipelinePhase; body: string } | undefined
+  >(undefined);
   const lastPipelineRef = useRef<{
     body: string;
     beatsReport: string;
@@ -121,6 +149,10 @@ export function ChapterTools(props: Props) {
   } | null>(null);
 
   const license = checkLicense(settings);
+  const [costBarOpen, setCostBarOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [ctxBlocks, setCtxBlocks] = useState<WriteContextBlock[]>([]);
+  const [craftFixBusy, setCraftFixBusy] = useState(false);
 
   const [polishOpen, setPolishOpen] = useState(false);
   const [instruction, setInstruction] = useState("加强冲突，对白更有声口。");
@@ -178,6 +210,11 @@ export function ChapterTools(props: Props) {
     setDraftSlot("A");
     draftAHoldRef.current = "";
     setBeatAlignRows([]);
+    setCostBarOpen(false);
+    setCtxOpen(false);
+    setCtxBlocks([]);
+    stopAfterSceneRef.current = false;
+    skipCostConfirmRef.current = false;
     void (async () => {
       try {
         const t = await window.moshu!.readText(
@@ -250,10 +287,13 @@ export function ChapterTools(props: Props) {
     }
     if (!resume && doc.trim() && !confirmOverwrite(`${chapterId} 正文`)) return;
 
-    if (!resume && settings.confirmCostBeforeWrite !== false) {
-      const hint = costHint || "将调用模型写一章，可能产生费用";
-      if (!window.confirm(`${hint}\n\n确认开始写本章？`)) return;
+    if (!resume && settings.confirmCostBeforeWrite !== false && !skipCostConfirmRef.current) {
+      pendingWriteResumeRef.current = resume;
+      setCostBarOpen(true);
+      return;
     }
+    skipCostConfirmRef.current = false;
+    setCostBarOpen(false);
 
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -264,6 +304,7 @@ export function ChapterTools(props: Props) {
     setPipelineProgress("");
     phaseLogRef.current = [];
     skipPolishNowRef.current = false;
+    stopAfterSceneRef.current = false;
     let pipelineBeatsReport = "";
     try {
       if (!resume && doc.trim()) {
@@ -289,6 +330,7 @@ export function ChapterTools(props: Props) {
         skipBeatsCheck: skipBeatsLocal || undefined,
         skipPolish: skipPolishLocal || undefined,
         getSkipPolish: () => skipPolishNowRef.current,
+        getStopAfterScene: () => stopAfterSceneRef.current,
         resumeFrom: resume?.from,
         resumeBody: resume?.body,
         onDelta: (d) => {
@@ -614,6 +656,145 @@ export function ChapterTools(props: Props) {
     onHint(hits.length ? `扫描到 ${hits.length} 处` : "扫描通过");
   }
 
+  async function runCraftFix() {
+    if (!doc.trim()) {
+      onErr("正文为空");
+      return;
+    }
+    if (!llmReady) {
+      onNeedSetup();
+      return;
+    }
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setCraftFixBusy(true);
+    setBusy(true);
+    onErr("");
+    try {
+      let hits = scanHits.filter((h) => h.kind === "工艺病" || h.kind === "禁忌词");
+      if (!hits.length) {
+        hits = scanCraftIssues(doc);
+        if (hits.length) setScanHits(hits);
+      }
+      await backupChapter({ root, join, chapterId, body: doc, note: "工艺润色前" });
+      const text = await chatCompletion(
+        settings,
+        [
+          { role: "system", content: SYSTEM_WRITER },
+          { role: "user", content: craftFixPrompt({ body: doc, hits }) },
+        ],
+        {
+          providers,
+          signal: ac.signal,
+          model: settings.routeCheck || settings.routeChapter || "复杂",
+          onDelta: (d) =>
+            setStream((s) => {
+              const next = s + d;
+              setDoc(next);
+              return next;
+            }),
+        }
+      );
+      setDoc(text);
+      setStream("");
+      onHint(`工艺润色完成（约 ${countTextWords(text)} 字）`);
+      await refreshMeta();
+    } catch (e) {
+      if (isAbortError(e)) onHint("已取消工艺润色");
+      else onErr(humanizeLlmError(e));
+    } finally {
+      setCraftFixBusy(false);
+      setBusy(false);
+      abortRef.current = null;
+      setStream("");
+    }
+  }
+
+  async function openContextPreview() {
+    onErr("");
+    try {
+      const ledgerSum = await loadSummaries(root, join);
+      const summaryText = formatRecentSummariesForPrompt(ledgerSum, chapterId, 5);
+      const entities = await loadEntities(root, join);
+      const entityText = entities
+        .slice(0, 10)
+        .map((e) => `- ${e.kind}｜${e.name}：${(e.description || "").slice(0, 120)}`)
+        .join("\n");
+      const ledger = await loadHooksLedger(root, join);
+      const hooksText = formatOpenHooksForPrompt(ledger, 12, chapterId);
+      const beatsLoaded = await loadChapterBeatsText({ root, join, chapterId });
+      const kbIndex = await window.moshu!.readJson<{ chunks: KbChunk[] }>(
+        await join(root, "kb", "index.json"),
+        { chunks: [] }
+      );
+      const kbHits = retrieveChunks(
+        kbIndex.chunks || [],
+        `${chapterTitle} ${beatsLoaded.text.slice(0, 200)}`,
+        5
+      );
+      const kbText = formatKbForPrompt(kbHits);
+      let styleText = "";
+      try {
+        styleText = await window.moshu!.readText(await join(root, "prompts", "style.md"));
+      } catch {
+        styleText = "";
+      }
+      setCtxBlocks([
+        {
+          id: "summary",
+          kind: "summary",
+          title: "近章摘要",
+          text: summaryText || "（暂无摘要）",
+          enabled: Boolean(summaryText.trim()),
+        },
+        {
+          id: "entity",
+          kind: "entity",
+          title: "实体设定",
+          text: entityText || "（暂无实体）",
+          enabled: Boolean(entityText.trim()),
+        },
+        {
+          id: "hooks",
+          kind: "hooks",
+          title: "未解钩子",
+          text: hooksText || "（暂无钩子）",
+          enabled: Boolean(hooksText.trim()),
+        },
+        {
+          id: "kb",
+          kind: "kb",
+          title: "知识库切片",
+          text: kbText || "（暂无切片）",
+          enabled: Boolean(kbText.trim()),
+        },
+        {
+          id: "style",
+          kind: "style",
+          title: "风格提示",
+          text: (styleText || "").slice(0, 2000) || "（暂无）",
+          enabled: false,
+        },
+      ]);
+      setCtxOpen(true);
+    } catch (e) {
+      onErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function applyContextInject() {
+    const assembled = assembleContextFromBlocks(ctxBlocks);
+    if (!assembled.trim()) {
+      onErr("未勾选任何有效块");
+      return;
+    }
+    const next = upsertContextInject(notes, assembled);
+    await saveNotes(next);
+    setNotesOpen(true);
+    onHint("已写入本章备注【上下文预览注入】，写章时会注入");
+  }
+
   async function reExtractHooks() {
     if (!llmReady) {
       onNeedSetup();
@@ -706,9 +887,22 @@ export function ChapterTools(props: Props) {
           {busy && pipelineProgress ? "写作中…" : doc.trim() ? "重写本章" : "写本章"}
         </button>
         {busy && (
-          <button type="button" className="btn btn-danger btn-compact" onClick={cancel}>
-            取消
-          </button>
+          <>
+            <button type="button" className="btn btn-danger btn-compact" onClick={cancel}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-compact"
+              onClick={() => {
+                stopAfterSceneRef.current = true;
+                onHint("将在本场写完后停止并保留已写");
+              }}
+              title="流水线写完当前场次后停止"
+            >
+              本场后停
+            </button>
+          </>
         )}
         <label className="studio-chapters-n" title="本次写作预设（不写回设置）">
           <span>预设</span>
@@ -780,6 +974,53 @@ export function ChapterTools(props: Props) {
           {effectivePreset === "fast" ? " · 快速" : ""}
         </span>
       </div>
+      {costBarOpen && (
+        <CostConfirmBar
+          hint={`${costHint || "将调用模型写一章，可能产生费用"}。确认开始写本章？`}
+          onCancel={() => {
+            setCostBarOpen(false);
+            pendingWriteResumeRef.current = undefined;
+            onHint("已取消写章");
+          }}
+          onConfirm={() => {
+            skipCostConfirmRef.current = true;
+            setCostBarOpen(false);
+            void writeChapter(pendingWriteResumeRef.current);
+            pendingWriteResumeRef.current = undefined;
+          }}
+        />
+      )}
+      {ctxOpen && (
+        <div className="panel stack" style={{ padding: 12 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            勾选要注入写章备注的上下文块（写入【上下文预览注入】）
+          </div>
+          {ctxBlocks.map((b) => (
+            <label key={b.id} className="check-row" style={{ alignItems: "flex-start" }}>
+              <input
+                type="checkbox"
+                checked={b.enabled}
+                onChange={(e) => setCtxBlocks((prev) => toggleBlock(prev, b.id, e.target.checked))}
+              />
+              <span>
+                <strong>{b.title}</strong>
+                <div className="muted" style={{ fontSize: 12, whiteSpace: "pre-wrap", maxHeight: 72, overflow: "auto" }}>
+                  {b.text.slice(0, 280)}
+                  {b.text.length > 280 ? "…" : ""}
+                </div>
+              </span>
+            </label>
+          ))}
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="btn btn-primary btn-compact" onClick={() => void applyContextInject()}>
+              写入本章备注
+            </button>
+            <button type="button" className="btn btn-ghost btn-compact" onClick={() => setCtxOpen(false)}>
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
       {notesOpen && (
         <div className="field" style={{ margin: 0 }}>
           <label>本章作者备注（写章时会注入提示）</label>
@@ -826,6 +1067,23 @@ export function ChapterTools(props: Props) {
             onClick={() => void runLocalScan()}
           >
             扫描
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy || craftFixBusy || !doc.trim()}
+            onClick={() => void runCraftFix()}
+            title="按工艺红线一键润色（先备份）"
+          >
+            工艺润色
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            disabled={busy}
+            onClick={() => void openContextPreview()}
+          >
+            {ctxOpen ? "收起上下文" : "上下文预览"}
           </button>
           <button
             type="button"

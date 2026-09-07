@@ -27,20 +27,44 @@ const mainLinks = [
   { to: "/app/chapter", label: "正文", step: "4", key: "chapter" as const },
 ];
 
-const toolLinks = [
-  { to: "/app/volumes", label: "卷章管理" },
-  { to: "/app/batch", label: "批量写" },
-  { to: "/app/search", label: "书内搜索" },
-  { to: "/app/characters", label: "人物" },
-  { to: "/app/entities", label: "实体设定" },
-  { to: "/app/revise", label: "改稿队列" },
-  { to: "/app/knowledge", label: "知识库" },
-  { to: "/app/timeline", label: "时间线" },
-  { to: "/app/stats", label: "写作统计" },
-  { to: "/app/status", label: "进度导出" },
-  { to: "/app/packs", label: "扩展包" },
-  { to: "/app/settings", label: "设置" },
+const toolGroups: { label: string; links: { to: string; label: string }[] }[] = [
+  {
+    label: "写作",
+    links: [
+      { to: "/app/volumes", label: "卷章管理" },
+      { to: "/app/batch", label: "批量写" },
+      { to: "/app/search", label: "书内搜索" },
+    ],
+  },
+  {
+    label: "设定",
+    links: [
+      { to: "/app/characters", label: "人物" },
+      { to: "/app/entities", label: "实体设定" },
+      { to: "/app/knowledge", label: "知识库" },
+      { to: "/app/packs", label: "扩展包" },
+      { to: "/app/summaries", label: "章摘要" },
+    ],
+  },
+  {
+    label: "质检",
+    links: [
+      { to: "/app/revise", label: "改稿队列" },
+      { to: "/app/timeline", label: "时间线" },
+      { to: "/app/voice-check", label: "声口体检" },
+      { to: "/app/stats", label: "写作统计" },
+    ],
+  },
+  {
+    label: "导出",
+    links: [
+      { to: "/app/status", label: "进度导出" },
+      { to: "/app/settings", label: "设置" },
+    ],
+  },
 ];
+
+const toolLinks = toolGroups.flatMap((g) => g.links);
 export function AppLayout() {
   const {
     project,
@@ -503,20 +527,27 @@ export function AppLayout() {
           </button>
           {toolsOpen && (
             <nav className="nav nav-sub" aria-label="工具">
-              {toolLinks.map((l) => (
-                <NavLink
-                  key={l.to}
-                  to={l.to}
-                  className={({ isActive }) => (isActive || loc.pathname === l.to ? "active" : "")}
-                >
-                  {l.label}
-                  {l.to === "/app/status" && jobCount > 0 ? (
-                    <span className="nav-progress warn"> {jobCount}</span>
-                  ) : null}
-                  {l.to === "/app/settings" && hasUpdate ? (
-                    <span className="nav-progress"> 新</span>
-                  ) : null}
-                </NavLink>
+              {toolGroups.map((g) => (
+                <div key={g.label} className="nav-sub-group">
+                  <div className="nav-sub-group-label muted">{g.label}</div>
+                  {g.links.map((l) => (
+                    <NavLink
+                      key={l.to}
+                      to={l.to}
+                      className={({ isActive }) =>
+                        isActive || loc.pathname === l.to ? "active" : ""
+                      }
+                    >
+                      {l.label}
+                      {l.to === "/app/status" && jobCount > 0 ? (
+                        <span className="nav-progress warn"> {jobCount}</span>
+                      ) : null}
+                      {l.to === "/app/settings" && hasUpdate ? (
+                        <span className="nav-progress"> 新</span>
+                      ) : null}
+                    </NavLink>
+                  ))}
+                </div>
               ))}
             </nav>
           )}
@@ -861,7 +892,19 @@ export function AppLayout() {
           {projectChecklist && (
             <div className="panel" style={{ marginBottom: 12, padding: "10px 14px" }}>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-                开书清单（完成一项会自动消失）
+                开书清单（完成一项会自动消失）·{" "}
+                {projectChecklist.filter((s) => s.done).length}/{projectChecklist.length}
+              </div>
+              <div className="goal-bar checklist-progress-bar" style={{ marginBottom: 8 }}>
+                <div
+                  className="goal-bar-fill"
+                  style={{
+                    width: `${Math.round(
+                      (projectChecklist.filter((s) => s.done).length / projectChecklist.length) *
+                        100
+                    )}%`,
+                  }}
+                />
               </div>
               <ol className="empty-guide-steps" style={{ margin: 0 }}>
                 {projectChecklist.map((s) => (

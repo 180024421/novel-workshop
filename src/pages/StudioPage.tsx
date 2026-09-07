@@ -149,6 +149,11 @@ export function StudioPage() {
       window.setTimeout(() => {
         const el = editorRef.current;
         if (!el || !doc) return;
+        const flashHl = () => {
+          const host = document.querySelector(".studio-cm, .studio-editor textarea");
+          host?.classList.add("search-hl");
+          window.setTimeout(() => host?.classList.remove("search-hl"), 1600);
+        };
         if (jump.query) {
           const idx = doc.indexOf(jump.query);
           if (idx >= 0) {
@@ -158,6 +163,7 @@ export function StudioPage() {
             const before = doc.slice(0, idx);
             const lineNo = before.split("\n").length;
             el.scrollTop = Math.max(0, (lineNo - 3) * lineH);
+            flashHl();
             return;
           }
         }
@@ -171,6 +177,7 @@ export function StudioPage() {
           el.setSelectionRange(pos, pos);
           const lineH = (settings.editorFontSize || 16) * (settings.editorLineHeight || 1.75);
           el.scrollTop = Math.max(0, (jump.line - 3) * lineH);
+          flashHl();
         }
       }, 80);
     } catch {

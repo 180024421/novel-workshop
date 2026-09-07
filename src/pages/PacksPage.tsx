@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { confirmAction } from "../lib/confirm";
+import { applyCraftUpgrade } from "../lib/craftUpgrade";
 import {
   applyPackToProject,
   importPackFolder,
@@ -101,6 +102,31 @@ export function PacksPage() {
     }
   }
 
+  async function upgradeCraft() {
+    if (!project) {
+      setErr("请先打开项目");
+      return;
+    }
+    if (
+      !confirmAction(
+        "将把写作工艺红线合并进本书 prompts/style.md 与 taboo.md（保留原有内容）。确定？"
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      await applyCraftUpgrade(project.root, join);
+      setMsg("已补齐工艺红线到 style.md / taboo.md");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="stack">
       <div>
@@ -124,6 +150,14 @@ export function PacksPage() {
           </button>
           <button className="btn" disabled={busy} onClick={() => void importZip()}>
             导入 zip
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy || !project}
+            onClick={() => void upgradeCraft()}
+            title="合并工艺红线到本书 prompts"
+          >
+            一键补工艺红线
           </button>
           <button className="btn btn-ghost" onClick={() => void reload()}>
             刷新
