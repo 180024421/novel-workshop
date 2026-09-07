@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { EmptyGuide } from "../components/EmptyGuide";
 import { confirmAction } from "../lib/confirm";
-import { chunkText, KB_TAG_OPTIONS, retrieveChunks } from "../lib/kb";
+import { chunkText, KB_TAG_OPTIONS, kbEmbeddingApiReady, retrieveChunks } from "../lib/kb";
 import type { KbChunk } from "../types";
 import { useApp } from "../state/AppContext";
 
 const PAGE_SIZE = 40;
 
 export function KnowledgePage() {
-  const { project, join, settings } = useApp();
+  const { project, join, settings, providers } = useApp();
   const [chunks, setChunks] = useState<KbChunk[]>([]);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<KbChunk[]>([]);
@@ -128,7 +128,9 @@ export function KnowledgePage() {
         <p className="muted">按标签（节奏/对白/战斗…）导入 TXT / Markdown / Word(.docx)；写作时会按细纲偏好加权检索。</p>
         {settings.kbEmbeddingEnabled ? (
           <p className="muted" style={{ fontSize: 12 }}>
-            Embedding 已开启，但当前未配置向量 API，检索仍使用 MiniSearch。
+            {kbEmbeddingApiReady(providers)
+              ? "Embedding 已开启：写章检索会先 MiniSearch 再向量重排；失败自动回退。"
+              : "Embedding 已开启，但当前无可用渠道 Key，检索仍使用 MiniSearch。"}
           </p>
         ) : null}
       </div>

@@ -1,5 +1,6 @@
 import MiniSearch from "minisearch";
 import type { KbChunk } from "../types";
+import type { ProviderConfig } from "./providerPresets";
 
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 80;
@@ -83,9 +84,20 @@ export function retrieveChunks(
   return scored.slice(0, limit).map((x) => x.c);
 }
 
-/** 当前客户端无独立 embedding 端点时恒为 false；开开关后仍回退 MiniSearch */
-export function kbEmbeddingApiReady(_providers?: unknown): boolean {
-  return false;
+/** 取第一个启用且带 Key 的渠道，供 OpenAI 兼容 `/embeddings` 使用 */
+export function pickEmbeddingProvider(
+  providers?: ProviderConfig[] | null
+): ProviderConfig | null {
+  if (!providers?.length) return null;
+  return (
+    providers.find((p) => p.enabled && Boolean(p.apiKey?.trim()) && Boolean(p.baseUrl?.trim())) ||
+    null
+  );
+}
+
+/** 开关开启且至少有一个可用 provider 时可尝试 embedding；否则回退 MiniSearch */
+export function kbEmbeddingApiReady(providers?: ProviderConfig[] | null): boolean {
+  return Boolean(pickEmbeddingProvider(providers));
 }
 
 /**
