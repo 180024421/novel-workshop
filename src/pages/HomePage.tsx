@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { confirmAction } from "../lib/confirm";
 import { GENRE_LABELS, GENRE_PRESETS } from "../lib/genrePresets";
 import { seedSampleProject, SAMPLE } from "../lib/sampleProject";
+import { DEMO_3MIN } from "../lib/demoScript";
 import { forgetSessionRoot, loadSession, loadSessionForRoot, saveSession } from "../lib/session";
 import { getRecentUsage, getTodayUsage, goalProgress, type DayUsage } from "../lib/usageLedger";
 import { formatCny } from "../lib/costEstimate";
@@ -33,6 +34,7 @@ export function HomePage() {
   const [sessionHint, setSessionHint] = useState("");
   const [invalidSessionRoot, setInvalidSessionRoot] = useState<string | null>(null);
   const [autoTried, setAutoTried] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
 
   const goal = settings.dailyWordGoal || 2000;
   const pct = goalProgress(today.words, goal);
@@ -293,8 +295,32 @@ export function HomePage() {
           中间改稿，右侧聊构想；设定 → 总纲（全书）→ 细纲（分卷+章）→ 正文
         </p>
         <p className="muted" style={{ fontSize: 12, marginTop: -4 }}>
-          开书清单：设定 → 总纲 → 细纲 → 第1章（打开书稿后侧栏会提示未完成项）
+          开书清单：工艺红线 → 设定 → 总纲 → 细纲 → 第1章（侧栏会提示未完成项）
         </p>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={() => setDemoOpen((v) => !v)}
+          >
+            {demoOpen ? "收起演示脚本" : "3 分钟演示脚本"}
+          </button>
+        </div>
+        {demoOpen && (
+          <div className="panel stack" style={{ marginBottom: 12, padding: 12 }}>
+            <strong>{DEMO_3MIN.title}</strong>
+            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+              {DEMO_3MIN.steps.map((s) => (
+                <li key={s.n} style={{ marginBottom: 4 }}>
+                  {s.text}
+                </li>
+              ))}
+            </ol>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              {DEMO_3MIN.tip}
+            </p>
+          </div>
+        )}
 
         <div className="home-actions">
           {hasResume ? (

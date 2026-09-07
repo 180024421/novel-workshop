@@ -152,6 +152,8 @@ export function ChapterTools(props: Props) {
   const [costBarOpen, setCostBarOpen] = useState(false);
   const [ctxOpen, setCtxOpen] = useState(false);
   const [ctxBlocks, setCtxBlocks] = useState<WriteContextBlock[]>([]);
+  /** 勾选后用于下次写章的显式 contextBlocks（不依赖备注注入） */
+  const [pendingContextBlocks, setPendingContextBlocks] = useState("");
   const [craftFixBusy, setCraftFixBusy] = useState(false);
 
   const [polishOpen, setPolishOpen] = useState(false);
@@ -333,6 +335,7 @@ export function ChapterTools(props: Props) {
         getStopAfterScene: () => stopAfterSceneRef.current,
         resumeFrom: resume?.from,
         resumeBody: resume?.body,
+        contextBlocks: pendingContextBlocks || undefined,
         onDelta: (d) => {
           setStream((s) => {
             const next = s + d;
@@ -375,12 +378,17 @@ export function ChapterTools(props: Props) {
       const enabled = providers.find((p) => p.enabled && p.apiKey.trim());
       const price = pickPrice(prices, enabled?.id);
       const cost = estimateCostCny(4000, w, price.cnyPer1k);
-      await addUsage({ words: Math.max(0, w - prevWords), costCny: cost });
+      await addUsage({
+        words: Math.max(0, w - prevWords),
+        costCny: cost,
+        writeOk: 1,
+      });
       onHint(formatChapterWriteReport(w, targetWords, pipelineBeatsReport));
       await refreshMeta();
     } catch (e) {
       if (isAbortError(e)) onHint("已取消");
       else {
+        void addUsage({ writeFail: 1 });
         const msg = humanizeLlmError(e);
         const lastPhase = [...phaseLogRef.current].reverse().find(Boolean) || pipelineProgress;
         const withPhase =
@@ -671,34 +679,46 @@ export function ChapterTools(props: Props) {
     setCraftFixBusy(true);
     setBusy(true);
     onErr("");
+    const before = doc;
     try {
       let hits = scanHits.filter((h) => h.kind === "工艺病" || h.kind === "禁忌词");
       if (!hits.length) {
         hits = scanCraftIssues(doc);
         if (hits.length) setScanHits(hits);
       }
-      await backupChapter({ root, join, chapterId, body: doc, note: "工艺润色前" });
+      const bak = await backupChapter({
+        root,
+        join,
+        chapterId,
+        body: before,
+        note: "工艺润色前",
+      });
+      let streamed = "";
       const text = await chatCompletion(
         settings,
         [
           { role: "system", content: SYSTEM_WRITER },
-          { role: "user", content: craftFixPrompt({ body: doc, hits }) },
+          { role: "user", content: craftFixPrompt({ body: before, hits }) },
         ],
         {
           providers,
           signal: ac.signal,
           model: settings.routeCheck || settings.routeChapter || "复杂",
-          onDelta: (d) =>
-            setStream((s) => {
-              const next = s + d;
-              setDoc(next);
-              return next;
-            }),
+          onDelta: (d) => {
+            streamed += d;
+            setStream(streamed);
+          },
         }
       );
-      setDoc(text);
+      const after = text.trim() || streamed.trim();
+      if (!after) throw new Error("润色结果为空");
+      setDoc(after);
       setStream("");
-      onHint(`工艺润色完成（约 ${countTextWords(text)} 字）`);
+      setDiffLeft(before);
+      setDiffLeftLabel("润色前");
+      setDiffMeta(bak);
+      setDiffOpen(true);
+      onHint(`工艺润色完成（约 ${countTextWords(after)} 字）· 已打开改前/改后 Diff`);
       await refreshMeta();
     } catch (e) {
       if (isAbortError(e)) onHint("已取消工艺润色");
@@ -789,10 +809,21 @@ export function ChapterTools(props: Props) {
       onErr("未勾选任何有效块");
       return;
     }
+    setPendingContextBlocks(assembled);
+    onHint("已设为下次写章的 contextBlocks（显式参数，不改备注）");
+  }
+
+  async function applyContextToNotes() {
+    const assembled = assembleContextFromBlocks(ctxBlocks);
+    if (!assembled.trim()) {
+      onErr("未勾选任何有效块");
+      return;
+    }
+    setPendingContextBlocks(assembled);
     const next = upsertContextInject(notes, assembled);
     await saveNotes(next);
     setNotesOpen(true);
-    onHint("已写入本章备注【上下文预览注入】，写章时会注入");
+    onHint("已写入备注，并同步设为下次写章 contextBlocks");
   }
 
   async function reExtractHooks() {
@@ -993,7 +1024,8 @@ export function ChapterTools(props: Props) {
       {ctxOpen && (
         <div className="panel stack" style={{ padding: 12 }}>
           <div className="muted" style={{ fontSize: 12 }}>
-            勾选要注入写章备注的上下文块（写入【上下文预览注入】）
+            勾选上下文块 → 用于写章请求的显式 contextBlocks
+            {pendingContextBlocks.trim() ? " · 已有待注入块" : ""}
           </div>
           {ctxBlocks.map((b) => (
             <label key={b.id} className="check-row" style={{ alignItems: "flex-start" }}>
@@ -1011,10 +1043,25 @@ export function ChapterTools(props: Props) {
               </span>
             </label>
           ))}
-          <div className="row" style={{ gap: 6 }}>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             <button type="button" className="btn btn-primary btn-compact" onClick={() => void applyContextInject()}>
-              写入本章备注
+              用于下次写章
             </button>
+            <button type="button" className="btn btn-ghost btn-compact" onClick={() => void applyContextToNotes()}>
+              同时写入备注
+            </button>
+            {pendingContextBlocks.trim() ? (
+              <button
+                type="button"
+                className="btn btn-ghost btn-compact"
+                onClick={() => {
+                  setPendingContextBlocks("");
+                  onHint("已清除待注入 contextBlocks");
+                }}
+              >
+                清除待注入
+              </button>
+            ) : null}
             <button type="button" className="btn btn-ghost btn-compact" onClick={() => setCtxOpen(false)}>
               关闭
             </button>

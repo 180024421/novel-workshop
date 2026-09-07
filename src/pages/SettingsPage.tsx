@@ -20,6 +20,7 @@ import { DEFAULT_PRICES, loadPrices, savePrices, type PriceRow } from "../lib/co
 import { DEFAULT_HOTKEYS, HOTKEY_LABELS, eventToHotkey, type HotkeyAction } from "../lib/hotkeys";
 import { checkLicense, DEMO_LICENSE_KEY, isDemoLicenseAllowed } from "../lib/license";
 import { kbEmbeddingApiReady } from "../lib/kb";
+import { listBackups, pruneRevisions } from "../lib/backup";
 
 const QUICK_IDS = ["ModelScope", "DashScope", "Zhipu"];
 
@@ -93,7 +94,7 @@ function SettingsSection({
 
 export function SettingsPage() {
   const nav = useNavigate();
-  const { settings, setSettings, providers, setProviders, llmReady } = useApp();
+  const { settings, setSettings, providers, setProviders, llmReady, project, join } = useApp();
   const [form, setForm] = useState<AppSettings>(settings);
   const [list, setList] = useState<ProviderConfig[]>(providers);
   const [paste, setPaste] = useState("");
@@ -127,6 +128,12 @@ export function SettingsPage() {
   const [licenseMsg, setLicenseMsg] = useState("");
   const [fpLine, setFpLine] = useState("");
   const [metaHint, setMetaHint] = useState("");
+  const [crashText, setCrashText] = useState("");
+  const [crashPath, setCrashPath] = useState("");
+  const [crashBytes, setCrashBytes] = useState(0);
+  const [pruneKeep, setPruneKeep] = useState(8);
+  const [pruneDays, setPruneDays] = useState(30);
+  const [pruneBusy, setPruneBusy] = useState(false);
 
   function toggleSection(id: SectionId) {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1431,6 +1438,146 @@ export function SettingsPage() {
             onChange={(e) => setForm({ ...form, updateApiBase: e.target.value })}
             onBlur={() => void persist(list, form)}
           />
+        </div>
+
+        <hr style={{ border: 0, borderTop: "1px solid var(--border, #ddd)", margin: "8px 0" }} />
+        <h3 style={{ margin: 0, fontSize: 15 }}>崩溃日志</h3>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          主进程异常写入 userData/logs/crash.log
+          {crashPath ? ` · ${crashPath}` : ""}
+          {crashBytes ? ` · ${Math.round(crashBytes / 1024)} KB` : ""}
+        </p>
+        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={async () => {
+              if (!window.moshu?.getCrashLog) {
+                setMsg("浏览器预览不支持；请用桌面端");
+                return;
+              }
+              const r = await window.moshu.getCrashLog();
+              setCrashText(r.text || "（暂无崩溃记录）");
+              setCrashPath(r.path || "");
+              setCrashBytes(r.bytes || 0);
+              setMsg(r.ok ? "已加载崩溃日志" : r.message || "读取失败");
+            }}
+          >
+            查看
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={async () => {
+              if (!window.moshu?.getCrashLog || !window.moshu.saveFile) {
+                setMsg("请用桌面端导出");
+                return;
+              }
+              const r = await window.moshu.getCrashLog();
+              if (!r.text.trim()) {
+                setMsg("暂无崩溃日志可导出");
+                return;
+              }
+              const saved = await window.moshu.saveFile({
+                defaultPath: "moshu-crash.log",
+                content: r.text,
+                filters: [{ name: "Log", extensions: ["log", "txt"] }],
+              });
+              setMsg(saved ? `已导出：${saved}` : "已取消导出");
+            }}
+          >
+            导出
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={async () => {
+              if (!window.moshu?.clearCrashLog) return;
+              if (!window.confirm("清空崩溃日志？")) return;
+              const r = await window.moshu.clearCrashLog();
+              setCrashText("");
+              setCrashBytes(0);
+              setMsg(r.ok ? "已清空崩溃日志" : r.message || "清空失败");
+            }}
+          >
+            清空
+          </button>
+        </div>
+        {crashText ? (
+          <pre
+            className="stream-box"
+            style={{ maxHeight: 200, whiteSpace: "pre-wrap", fontSize: 11 }}
+          >
+            {crashText.slice(-8000)}
+          </pre>
+        ) : null}
+
+        <hr style={{ border: 0, borderTop: "1px solid var(--border, #ddd)", margin: "8px 0" }} />
+        <h3 style={{ margin: 0, fontSize: 15 }}>修订备份清理</h3>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          清理本书 revisions/ 旧自动备份（按章保留最近 N 条；可选删过旧条目）
+        </p>
+        <div className="row" style={{ flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <label className="muted" style={{ fontSize: 12 }}>
+            每章保留
+            <input
+              type="number"
+              min={1}
+              max={40}
+              value={pruneKeep}
+              onChange={(e) => setPruneKeep(Math.max(1, Number(e.target.value) || 8))}
+              style={{ width: 56, marginLeft: 6 }}
+            />
+          </label>
+          <label className="muted" style={{ fontSize: 12 }}>
+            优先删早于（天，0=不按天）
+            <input
+              type="number"
+              min={0}
+              max={365}
+              value={pruneDays}
+              onChange={(e) => setPruneDays(Math.max(0, Number(e.target.value) || 0))}
+              style={{ width: 56, marginLeft: 6 }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-compact"
+            disabled={pruneBusy || !project}
+            onClick={async () => {
+              if (!project) {
+                setMsg("请先打开书稿");
+                return;
+              }
+              const before = await listBackups(project.root, join);
+              if (
+                !window.confirm(
+                  `将清理修订备份：当前 ${before.length} 条，每章最多保留 ${pruneKeep} 条${
+                    pruneDays > 0 ? `，优先删 ${pruneDays} 天前` : ""
+                  }。继续？`
+                )
+              ) {
+                return;
+              }
+              setPruneBusy(true);
+              try {
+                const r = await pruneRevisions(project.root, join, {
+                  keepPerChapter: pruneKeep,
+                  keepTotal: 80,
+                  olderThanDays: pruneDays,
+                });
+                setMsg(
+                  `清理完成：${r.before} → ${r.after}（删除 ${r.removed} 条 / ${r.deletedFiles} 文件）`
+                );
+              } catch (e) {
+                setMsg(e instanceof Error ? e.message : String(e));
+              } finally {
+                setPruneBusy(false);
+              }
+            }}
+          >
+            {pruneBusy ? "清理中…" : "清理旧修订"}
+          </button>
         </div>
       </SettingsSection>
       )}

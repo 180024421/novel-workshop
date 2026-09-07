@@ -69,3 +69,45 @@ export function parseVoiceIssues(raw: string): VoiceIssue[] {
   }
   return issues;
 }
+
+/** 按声口问题改写本章对白（输出整章 Markdown） */
+export function voiceFixPrompt(opts: {
+  chapterId: string;
+  body: string;
+  charactersMarkdown: string;
+  issues: VoiceIssue[];
+}): string {
+  const lines = opts.issues
+    .slice(0, 16)
+    .map((i) => `- ${i.name}｜${i.detail}｜摘录：${i.sample}`)
+    .join("\n");
+  return `按人物卡声口改写本章对白，消灭「串戏」。
+规则：
+- 只改对白与紧邻说话标签，旁白情节、章结构、人名尽量不动
+- 输出完整本章 Markdown 正文（不要解释、不要对照表）
+- 若问题摘录已不在正文，跳过该项
+
+本章：${opts.chapterId}
+
+人物卡：
+${opts.charactersMarkdown.slice(0, 6000)}
+
+问题列表：
+${lines || "（无结构化问题，请通篇校对主要角色对白是否串戏）"}
+
+正文：
+${opts.body.slice(0, 28000)}`;
+}
+
+export function groupVoiceIssuesByChapter(
+  issues: VoiceIssue[]
+): Map<string, VoiceIssue[]> {
+  const map = new Map<string, VoiceIssue[]>();
+  for (const iss of issues) {
+    const id = iss.chapterId || "未知章";
+    const list = map.get(id) || [];
+    list.push(iss);
+    map.set(id, list);
+  }
+  return map;
+}

@@ -280,14 +280,54 @@ function todayKey() {
 
 ipcMain.handle("usage:get", async () => readJson(USAGE_FILE(), { days: {} }));
 
+ipcMain.handle("logs:getCrash", async () => {
+  try {
+    const file = path.join(app.getPath("userData"), "logs", "crash.log");
+    if (!fssync.existsSync(file)) {
+      return { ok: true, text: "", path: file, bytes: 0 };
+    }
+    const text = await fs.readFile(file, "utf8");
+    const st = fssync.statSync(file);
+    return { ok: true, text, path: file, bytes: st.size };
+  } catch (e) {
+    return {
+      ok: false,
+      text: "",
+      path: "",
+      bytes: 0,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
+});
+
+ipcMain.handle("logs:clearCrash", async () => {
+  try {
+    const dir = path.join(app.getPath("userData"), "logs");
+    const file = path.join(dir, "crash.log");
+    const bak = path.join(dir, "crash.log.1");
+    for (const p of [file, bak]) {
+      try {
+        await fs.unlink(p);
+      } catch {
+        /* ignore */
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+});
+
 ipcMain.handle("usage:add", async (_e, delta) => {
   const store = await readJson(USAGE_FILE(), { days: {} });
   if (!store.days) store.days = {};
   const key = todayKey();
-  const cur = store.days[key] || { words: 0, costCny: 0 };
+  const cur = store.days[key] || { words: 0, costCny: 0, writeOk: 0, writeFail: 0 };
   const next = {
     words: cur.words + Math.max(0, Math.round(delta?.words || 0)),
     costCny: cur.costCny + Math.max(0, Number(delta?.costCny) || 0),
+    writeOk: (cur.writeOk || 0) + Math.max(0, Math.round(delta?.writeOk || 0)),
+    writeFail: (cur.writeFail || 0) + Math.max(0, Math.round(delta?.writeFail || 0)),
   };
   store.days[key] = next;
   // 只保留近 90 天

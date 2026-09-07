@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld("moshu", {
   setSession: (s) => ipcRenderer.invoke("session:set", s),
   getUsage: () => ipcRenderer.invoke("usage:get"),
   addUsage: (delta) => ipcRenderer.invoke("usage:add", delta),
+  getCrashLog: () => ipcRenderer.invoke("logs:getCrash"),
+  clearCrashLog: () => ipcRenderer.invoke("logs:clearCrash"),
   zipProjectBackup: (payload) => ipcRenderer.invoke("project:zipBackup", payload),
   exportVolumeZip: (payload) => ipcRenderer.invoke("project:exportVolumeZip", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("shell:showItemInFolder", filePath),

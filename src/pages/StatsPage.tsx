@@ -4,11 +4,13 @@ import { formatCny } from "../lib/costEstimate";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
 import { computeRhythmStats, type RhythmStats } from "../lib/rhythm";
 import {
+  buildWeeklyReport,
   calcWritingStreak,
   getRecentUsage,
   getTodayUsage,
   loadUsage,
   type DayUsage,
+  type WeeklyReport,
 } from "../lib/usageLedger";
 import { useApp } from "../state/AppContext";
 
@@ -20,6 +22,7 @@ export function StatsPage() {
   const [days7, setDays7] = useState<DayRow[]>([]);
   const [days30, setDays30] = useState<DayRow[]>([]);
   const [streak, setStreak] = useState(0);
+  const [weekly, setWeekly] = useState<WeeklyReport | null>(null);
   const [prog, setProg] = useState<ProjectProgress | null>(null);
   const [rhythm, setRhythm] = useState<RhythmStats | null>(null);
 
@@ -30,6 +33,7 @@ export function StatsPage() {
       setDays30(await getRecentUsage(30));
       const store = await loadUsage();
       setStreak(calcWritingStreak(store.days));
+      setWeekly(buildWeeklyReport(store, 7));
       if (project && window.moshu) {
         try {
           const p = await loadProjectProgress(project.root, join);
@@ -92,8 +96,44 @@ export function StatsPage() {
     <div className="stack">
       <div>
         <h2 className="h2">写作统计</h2>
-        <p className="muted">日字数、成本、连续写作天数、节奏仪表盘（本地账本）。</p>
+        <p className="muted">日字数、成本、连续写作天数、本地周报与节奏仪表盘。</p>
       </div>
+
+      {weekly && (
+        <div className="panel stack">
+          <h3 style={{ margin: 0, fontFamily: "var(--font-brand)" }}>近 7 日周报</h3>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {weekly.from} ~ {weekly.to} · 活跃 {weekly.activeDays} 天
+          </p>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">周字数</div>
+              <div className="stat-value" style={{ fontSize: 20 }}>
+                {weekly.words.toLocaleString()}
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">周费用</div>
+              <div className="stat-value" style={{ fontSize: 18 }}>
+                {formatCny(weekly.costCny).replace(/^≈\s*/, "")}
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">写章成功</div>
+              <div className="stat-value">{weekly.writeOk}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">失败率</div>
+              <div className="stat-value" style={{ fontSize: 20 }}>
+                {weekly.writeOk + weekly.writeFail > 0 ? `${weekly.failRate}%` : "—"}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                失败 {weekly.writeFail} 次
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="stat-grid">
         <div className="stat-card">

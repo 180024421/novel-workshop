@@ -164,4 +164,8 @@ export async function seedSampleProject(
       },
     ],
   });
+  await w.writeText(
+    await join(root, "ideas", "demo-3min.md"),
+    `# 3 分钟演示\n\n1. 读第1章对白\n2. 扩展包确认工艺红线\n3. 打开「本书健康分」\n4. 正文扫描→润色→看 Diff\n5. 声口体检→一键改对白\n`
+  );
 }

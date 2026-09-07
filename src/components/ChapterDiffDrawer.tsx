@@ -73,7 +73,7 @@ export function ChapterDiffDrawer(props: Props) {
     <div className="diff-drawer-backdrop" role="dialog" aria-modal="true">
       <div className="diff-drawer">
         <div className="diff-drawer-head row" style={{ justifyContent: "space-between" }}>
-          <strong>对比备份</strong>
+          <strong>{leftLabel.includes("润色") ? "改前 / 改后 Diff" : "对比备份"}</strong>
           <div className="row" style={{ gap: 8 }}>
             <button
               type="button"

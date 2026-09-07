@@ -13,6 +13,7 @@ import { checkLicense } from "../lib/license";
 import { AnnouncementBanner } from "../components/AnnouncementBanner";
 import { buildProjectChecklist } from "../components/EmptyGuide";
 import type { AppMetaPayload } from "../lib/appMeta";
+import { projectHasCraftRules } from "../lib/bookHealth";
 import { loadJobQueue } from "../lib/jobQueue";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
 import { loadSessionForRoot } from "../lib/session";
@@ -49,6 +50,7 @@ const toolGroups: { label: string; links: { to: string; label: string }[] }[] = 
   {
     label: "质检",
     links: [
+      { to: "/app/health", label: "本书健康分" },
       { to: "/app/revise", label: "改稿队列" },
       { to: "/app/timeline", label: "时间线" },
       { to: "/app/voice-check", label: "声口体检" },
@@ -91,6 +93,7 @@ export function AppLayout() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [today, setToday] = useState<DayUsage>({ words: 0, costCny: 0 });
   const [jobCount, setJobCount] = useState(0);
+  const [hasCraft, setHasCraft] = useState(false);
   const [chapterFilter, setChapterFilter] = useState("");
   const chapterListRef = useRef<HTMLDivElement>(null);
   const [toolsOpen, setToolsOpen] = useState(() => {
@@ -123,6 +126,7 @@ export function AppLayout() {
     const ch1 =
       prog.chapterRows.find((r) => r.id === "第1章") || prog.chapterRows[0];
     const items = buildProjectChecklist({
+      hasCraft,
       hasBible: Boolean(prog.hasBible || prog.hasSeed),
       hasOutline: Boolean(prog.hasOutline),
       hasBeats: prog.beatsDone > 0,
@@ -130,7 +134,7 @@ export function AppLayout() {
     });
     if (items.every((i) => i.done)) return null;
     return items;
-  }, [prog, project]);
+  }, [prog, project, hasCraft]);
 
   const [appMeta, setAppMeta] = useState<AppMetaPayload | null>(null);
   const [versionCode, setVersionCode] = useState(1);
@@ -168,12 +172,14 @@ export function AppLayout() {
     if (!project) {
       setProg(null);
       setJobCount(0);
+      setHasCraft(false);
       return;
     }
     try {
       setProg(await loadProjectProgress(project.root, join));
       const q = await loadJobQueue(project.root, join);
       setJobCount((q.jobs || []).length);
+      setHasCraft(await projectHasCraftRules(project.root, join));
     } catch {
       /* ignore */
     }

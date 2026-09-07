@@ -302,11 +302,28 @@ declare global {
           updatedAt: number;
         } | null
       ) => Promise<unknown>;
-      getUsage?: () => Promise<{ days: Record<string, { words: number; costCny: number }> }>;
-      addUsage?: (delta: { words?: number; costCny?: number }) => Promise<{
+      getUsage?: () => Promise<{
+        days: Record<string, { words: number; costCny: number; writeOk?: number; writeFail?: number }>;
+      }>;
+      addUsage?: (delta: {
+        words?: number;
+        costCny?: number;
+        writeOk?: number;
+        writeFail?: number;
+      }) => Promise<{
         words: number;
         costCny: number;
+        writeOk?: number;
+        writeFail?: number;
       }>;
+      getCrashLog?: () => Promise<{
+        ok: boolean;
+        text: string;
+        path: string;
+        bytes: number;
+        message?: string;
+      }>;
+      clearCrashLog?: () => Promise<{ ok: boolean; message?: string }>;
       zipProjectBackup?: (payload: {
         root: string;
         title: string;

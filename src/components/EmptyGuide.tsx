@@ -40,14 +40,20 @@ export function EmptyGuide(props: {
   );
 }
 
-/** 开书缺件 checklist：设定→总纲→细纲→第1章 */
+/** 开书缺件 checklist：工艺 → 设定 → 总纲 → 细纲 → 第1章 */
 export function buildProjectChecklist(opts: {
+  hasCraft?: boolean;
   hasBible: boolean;
   hasOutline: boolean;
   hasBeats: boolean;
   hasChapter1: boolean;
 }): { text: string; to: string; done: boolean }[] {
   return [
+    {
+      text: "应用工艺包 / 补工艺红线",
+      to: "/app/packs",
+      done: Boolean(opts.hasCraft),
+    },
     { text: "写设定 / 世界观", to: "/app/idea", done: opts.hasBible },
     { text: "生成总纲", to: "/app/outline", done: opts.hasOutline },
     { text: "补细纲场次", to: "/app/beats", done: opts.hasBeats },

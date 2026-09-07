@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { backupChapter } from "../lib/backup";
 import { loadCharactersMarkdown } from "../lib/characters";
 import { chatCompletion, humanizeLlmError } from "../lib/gateway";
 import { SYSTEM_WRITER } from "../lib/prompts";
+import { syncChapterFileName } from "../lib/chapterFiles";
 import {
   extractDialogueLines,
+  groupVoiceIssuesByChapter,
   parseVoiceIssues,
   voiceCheckPrompt,
+  voiceFixPrompt,
   type VoiceIssue,
 } from "../lib/voiceCheck";
 import { useApp } from "../state/AppContext";
@@ -19,12 +23,13 @@ function chapterSortKey(name: string) {
 }
 
 export function VoiceCheckPage() {
-  const { project, join, settings, providers, llmReady } = useApp();
+  const { project, join, settings, providers, llmReady, setChapterId, setChapterTitle } = useApp();
   const [chapters, setChapters] = useState<ChapterPick[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [report, setReport] = useState("");
   const [issues, setIssues] = useState<VoiceIssue[]>([]);
   const [busy, setBusy] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
@@ -124,6 +129,86 @@ export function VoiceCheckPage() {
     }
   }
 
+  async function runFixDialogue() {
+    if (!project || !window.moshu) return;
+    if (!llmReady) {
+      setErr("请先配置模型 Key");
+      return;
+    }
+    if (!issues.length) {
+      setErr("请先体检并解析出问题列表");
+      return;
+    }
+    setFixBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const charactersMarkdown = await loadCharactersMarkdown(project.root, join);
+      const byChapter = groupVoiceIssuesByChapter(issues);
+      let fixed = 0;
+      const logs: string[] = [];
+      for (const [chapterId, chIssues] of byChapter) {
+        const pick =
+          chapters.find((c) => c.id === chapterId) ||
+          chapters.find((c) => chapterId.includes(c.id) || c.id.includes(chapterId));
+        if (!pick?.body.trim()) {
+          logs.push(`${chapterId}：未找到本地正文，跳过`);
+          continue;
+        }
+        await backupChapter({
+          root: project.root,
+          join,
+          chapterId: pick.id,
+          body: pick.body,
+          note: "声口改对白前",
+        });
+        const next = await chatCompletion(
+          settings,
+          [
+            { role: "system", content: SYSTEM_WRITER },
+            {
+              role: "user",
+              content: voiceFixPrompt({
+                chapterId: pick.id,
+                body: pick.body,
+                charactersMarkdown,
+                issues: chIssues,
+              }),
+            },
+          ],
+          {
+            providers,
+            model: settings.routeCheck || settings.routeChapter || "复杂",
+            maxTokens: 12000,
+          }
+        );
+        if (!next.trim() || next.trim().length < pick.body.trim().length * 0.5) {
+          logs.push(`${pick.id}：改写结果过短，已保留原文`);
+          continue;
+        }
+        const title =
+          pick.title.replace(/^第\d+章\s*/, "").trim() ||
+          next.split(/\r?\n/).find((l) => l.trim())?.replace(/^#+\s*/, "").slice(0, 40) ||
+          "未命名";
+        await syncChapterFileName({
+          root: project.root,
+          join,
+          chapterId: pick.id,
+          title,
+          body: next,
+        });
+        fixed += 1;
+        logs.push(`${pick.id}：已改对白并写回`);
+      }
+      await reload();
+      setMsg(`一键改对白完成：${fixed} 章\n${logs.join("\n")}`);
+    } catch (e) {
+      setErr(humanizeLlmError(e));
+    } finally {
+      setFixBusy(false);
+    }
+  }
+
   if (!project) {
     return (
       <div className="panel">
@@ -139,24 +224,33 @@ export function VoiceCheckPage() {
     <div className="stack">
       <div>
         <h2 className="h2">声口一致性体检</h2>
-        <p className="muted">近章对白对照人物卡，检查是否串戏。</p>
+        <p className="muted">近章对白对照人物卡；发现问题可一键改对白并写回章节。</p>
       </div>
       <div className="panel stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <span className="muted" style={{ fontSize: 12 }}>
             最近有正文的章节（最多 8）
           </span>
-          <div className="row" style={{ gap: 6 }}>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             <button type="button" className="btn btn-ghost btn-compact" onClick={() => void reload()}>
               刷新
             </button>
             <button
               type="button"
               className="btn btn-primary btn-compact"
-              disabled={busy || !chapters.length}
+              disabled={busy || fixBusy || !chapters.length}
               onClick={() => void runCheck()}
             >
               {busy ? "体检中…" : "开始体检"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-compact"
+              disabled={busy || fixBusy || !issues.length}
+              onClick={() => void runFixDialogue()}
+              title="按问题列表改写对应章对白"
+            >
+              {fixBusy ? "改对白中…" : "一键改对白"}
             </button>
           </div>
         </div>
@@ -168,13 +262,17 @@ export function VoiceCheckPage() {
                 type="checkbox"
                 checked={selected.has(c.id)}
                 onChange={() => toggle(c.id)}
-                disabled={busy}
+                disabled={busy || fixBusy}
               />
               {c.id} · {c.title}
             </label>
           ))}
         </div>
-        {msg && <p className="ok-text">{msg}</p>}
+        {msg && (
+          <pre className="ok-text" style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+            {msg}
+          </pre>
+        )}
         {err && <p className="toast">{err}</p>}
         {issues.length > 0 && (
           <div className="scan-box">
@@ -184,6 +282,21 @@ export function VoiceCheckPage() {
                 <div className="muted" style={{ fontSize: 12 }}>
                   {iss.sample}
                 </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-compact"
+                  style={{ marginTop: 4 }}
+                  onClick={() => {
+                    const id = iss.chapterId.startsWith("第")
+                      ? iss.chapterId
+                      : `第${iss.chapterId.replace(/\D/g, "") || "1"}章`;
+                    const ch = chapters.find((c) => c.id === id || c.id === iss.chapterId);
+                    setChapterId(ch?.id || id);
+                    if (ch?.title) setChapterTitle(ch.title);
+                  }}
+                >
+                  定位到章
+                </button>
               </div>
             ))}
           </div>

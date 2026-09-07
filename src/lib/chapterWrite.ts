@@ -34,6 +34,7 @@ import {
   summarizePrompt,
   upsertChapterSummary,
 } from "./summaries";
+import { formatContextBlocksForPrompt } from "./writeContextPreview";
 
 export type WritePreset = "quality" | "fast";
 
@@ -86,6 +87,8 @@ export async function writeOneChapter(opts: {
   getStopAfterScene?: () => boolean;
   resumeFrom?: WritePipelinePhase;
   resumeBody?: string;
+  /** 写章显式上下文块 */
+  contextBlocks?: string;
 }): Promise<string> {
   const preset = resolveWritePreset(opts.settings, opts.writePreset);
   const forcePipeline = Boolean(opts.resumeFrom);
@@ -112,6 +115,7 @@ export async function writeOneChapter(opts: {
       getStopAfterScene: opts.getStopAfterScene,
       resumeFrom: opts.resumeFrom,
       resumeBody: opts.resumeBody,
+      contextBlocks: opts.contextBlocks,
     });
     opts.onResult?.(result);
     return result.body;
@@ -186,7 +190,13 @@ export async function writeOneChapter(opts: {
     opts.chapterId,
     opts.settings.summaryInjectCount ?? 5
   );
-  const beatsWithNotes = [beats, notes.trim() ? `## 作者本章补充\n${notes}` : "", hooksBlock]
+  const ctxBlock = formatContextBlocksForPrompt(opts.contextBlocks || "");
+  const beatsWithNotes = [
+    beats,
+    notes.trim() ? `## 作者本章补充\n${notes}` : "",
+    hooksBlock,
+    ctxBlock,
+  ]
     .filter(Boolean)
     .join("\n\n");
   const bibleExtra = [bible, entityBlock, summaryBlock].filter(Boolean).join("\n\n");

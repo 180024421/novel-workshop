@@ -43,6 +43,7 @@ import {
   summarizePrompt,
   upsertChapterSummary,
 } from "./summaries";
+import { formatContextBlocksForPrompt } from "./writeContextPreview";
 
 export type WritePipelinePhase =
   | "brief"
@@ -123,6 +124,8 @@ export async function runWritePipeline(opts: {
   /** 从指定阶段续跑（需配合 resumeBody） */
   resumeFrom?: WritePipelinePhase;
   resumeBody?: string;
+  /** 写章显式上下文块（预览勾选组装后的文本） */
+  contextBlocks?: string;
 }): Promise<WritePipelineResult> {
   const w = window.moshu;
   if (!w) throw new Error("桌面文件桥接不可用");
@@ -249,9 +252,11 @@ export async function runWritePipeline(opts: {
       opts.chapterId,
       opts.settings.summaryInjectCount ?? 5
     );
+    const ctxBlock = formatContextBlocksForPrompt(opts.contextBlocks || "");
     const beatsWithNotes = [
       beats,
       notes.trim() ? `## 作者本章补充\n${notes}` : "",
+      ctxBlock,
     ]
       .filter(Boolean)
       .join("\n\n");

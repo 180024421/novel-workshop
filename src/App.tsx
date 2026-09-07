@@ -20,6 +20,7 @@ import { StatsPage } from "./pages/StatsPage";
 import { RevisePage } from "./pages/RevisePage";
 import { SummariesPage } from "./pages/SummariesPage";
 import { VoiceCheckPage } from "./pages/VoiceCheckPage";
+import { HealthPage } from "./pages/HealthPage";
 
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { bootstrapped, llmReady } = useApp();
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="revise" element={<RevisePage />} />
             <Route path="summaries" element={<SummariesPage />} />
             <Route path="voice-check" element={<VoiceCheckPage />} />
+            <Route path="health" element={<HealthPage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
