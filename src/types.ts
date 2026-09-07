@@ -11,6 +11,12 @@ export type AppSettings = {
   routeCheck: string;
   /** 是否启用多阶段写作流水线，默认开启 */
   writePipelineEnabled?: boolean;
+  /** 写作预设：quality=流水线；fast=单次落稿（忽略流水线开关） */
+  writePreset?: "quality" | "fast";
+  /** 跳过细纲自检阶段（默认 false） */
+  writePipelineSkipBeatsCheck?: boolean;
+  /** 跳过润色阶段（默认 false） */
+  writePipelineSkipPolish?: boolean;
   /** 是否启用字数门禁，默认开启 */
   writePipelineWordGate?: boolean;
   /** 是否启用细纲自检，默认开启 */
@@ -196,8 +202,10 @@ declare global {
       saveFile?: (opts: {
         defaultPath?: string;
         content: string;
+        encoding?: "utf8" | "base64";
         filters?: { name: string; extensions: string[] }[];
       }) => Promise<string | null>;
+      writeBinary?: (p: string, base64: string) => Promise<boolean>;
       platform: () => Promise<{ platform: string; arch: string }>;
       chat: (payload: {
         requestId?: string;
@@ -212,6 +220,18 @@ declare global {
       abortChat?: (requestId: string) => Promise<boolean>;
       onChatDelta: (cb: (text: string) => void) => () => void;
       listPacks?: () => Promise<string[]>;
+      listUserPacks?: () => Promise<string[]>;
+      importPackZip?: (
+        zipPath: string,
+        opts?: { overwrite?: boolean }
+      ) => Promise<{
+        ok: boolean;
+        message: string;
+        needsOverwrite?: boolean;
+        id?: string;
+        name?: string;
+        dir?: string;
+      }>;
       pickDirectory?: () => Promise<string | null>;
       checkForUpdates?: () => Promise<{
         ok: boolean;

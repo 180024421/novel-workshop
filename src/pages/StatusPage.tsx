@@ -237,6 +237,8 @@ export function StatusPage() {
             <option value="feilu">飞卢风格 TXT</option>
             <option value="plain">纯文本</option>
             <option value="markdown">Markdown</option>
+            <option value="epub">EPUB 电子书</option>
+            <option value="docx">Word DOCX</option>
           </select>
         </div>
         <div className="field">
@@ -255,9 +257,18 @@ export function StatusPage() {
             刷新
           </button>
           <button className="btn btn-primary" disabled={busy} onClick={() => void doExport()}>
-            {busy ? "导出中…" : "导出全书 TXT"}
+            {busy
+              ? "导出中…"
+              : format === "epub" || format === "docx"
+                ? `导出 ${format.toUpperCase()}`
+                : "导出全书 TXT"}
           </button>
-          <button className="btn" disabled={busy} onClick={() => void doExportZip()}>
+          <button
+            className="btn"
+            disabled={busy || format === "epub" || format === "docx"}
+            title={format === "epub" || format === "docx" ? "分卷 Zip 仅支持文本格式" : undefined}
+            onClick={() => void doExportZip()}
+          >
             分卷 Zip
           </button>
           <button className="btn" onClick={() => nav("/app/batch")}>

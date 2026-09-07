@@ -1,6 +1,7 @@
 import { countTextWords } from "./projectProgress";
+import { exportRichBook } from "./exportRich";
 
-export type ExportFormat = "markdown" | "qidian" | "feilu" | "plain";
+export type ExportFormat = "markdown" | "qidian" | "feilu" | "plain" | "epub" | "docx";
 
 export async function exportBook(opts: {
   root: string;
@@ -8,6 +9,15 @@ export async function exportBook(opts: {
   title: string;
   format: ExportFormat;
 }): Promise<{ path: string; words: number; chapters: number }> {
+  if (opts.format === "epub" || opts.format === "docx") {
+    return exportRichBook({
+      root: opts.root,
+      join: opts.join,
+      title: opts.title,
+      format: opts.format,
+    });
+  }
+
   if (!window.moshu) throw new Error("需要桌面端");
   const files = await window.moshu.listDir(await opts.join(opts.root, "chapters"));
   const md = files

@@ -7,6 +7,7 @@ const tray = require("./tray.cjs");
 const projectBackup = require("./project-backup.cjs");
 const license = require("./license.cjs");
 const appMeta = require("./app-meta.cjs");
+const JSZip = require("jszip");
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mainWindow = null;
@@ -16,6 +17,7 @@ const SETTINGS_FILE = () => path.join(app.getPath("userData"), "settings.json");
 const PROVIDERS_FILE = () => path.join(app.getPath("userData"), "providers.json");
 const SESSION_FILE = () => path.join(app.getPath("userData"), "session.json");
 const USAGE_FILE = () => path.join(app.getPath("userData"), "usage.json");
+const USER_PACKS_DIR = () => path.join(app.getPath("userData"), "packs");
 
 const PROJECT_DIRS = [
   "ideas",
@@ -435,8 +437,19 @@ ipcMain.handle("dialog:saveFile", async (_e, opts) => {
   });
   if (res.canceled || !res.filePath) return null;
   await fs.mkdir(path.dirname(res.filePath), { recursive: true });
-  await fs.writeFile(res.filePath, opts?.content ?? "", "utf8");
+  const encoding = opts?.encoding === "base64" ? "base64" : "utf8";
+  const data =
+    encoding === "base64"
+      ? Buffer.from(String(opts?.content || ""), "base64")
+      : String(opts?.content ?? "");
+  await fs.writeFile(res.filePath, data);
   return res.filePath;
+});
+
+ipcMain.handle("fs:writeBinary", async (_e, filePath, base64) => {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, Buffer.from(String(base64 || ""), "base64"));
+  return true;
 });
 
 ipcMain.handle("app:platform", () => ({
@@ -472,6 +485,106 @@ ipcMain.handle("packs:list", async () => {
     }
   }
   return dirs;
+});
+
+ipcMain.handle("packs:listUser", async () => {
+  const base = USER_PACKS_DIR();
+  try {
+    await fs.mkdir(base, { recursive: true });
+    const entries = await fs.readdir(base, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => path.join(base, e.name));
+  } catch {
+    return [];
+  }
+});
+
+/**
+ * 导入本地扩展包 zip → userData/packs/{id}
+ * 校验 pack.json：id / name / files
+ */
+ipcMain.handle("packs:importZip", async (_e, zipPath, opts) => {
+  const overwrite = Boolean(opts?.overwrite);
+  if (!zipPath || !fssync.existsSync(zipPath)) {
+    return { ok: false, message: "找不到 zip 文件" };
+  }
+  try {
+    const buf = await fs.readFile(zipPath);
+    const zip = await JSZip.loadAsync(buf);
+    // 找 pack.json（允许在根或一级子目录）
+    let packEntry = zip.file("pack.json");
+    let rootPrefix = "";
+    if (!packEntry) {
+      const names = Object.keys(zip.files);
+      const hit = names.find((n) => /(^|\/)pack\.json$/i.test(n) && !n.endsWith("/"));
+      if (hit) {
+        packEntry = zip.file(hit);
+        const idx = hit.replace(/\\/g, "/").lastIndexOf("/");
+        rootPrefix = idx >= 0 ? hit.slice(0, idx + 1) : "";
+      }
+    }
+    if (!packEntry) {
+      return { ok: false, message: "zip 内缺少 pack.json" };
+    }
+    const raw = await packEntry.async("string");
+    let manifest;
+    try {
+      manifest = JSON.parse(raw);
+    } catch {
+      return { ok: false, message: "pack.json 不是合法 JSON" };
+    }
+    if (!manifest?.id || !manifest?.name || !manifest?.files) {
+      return { ok: false, message: "pack.json 需包含 id、name、files" };
+    }
+    const safeId = String(manifest.id)
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+      .trim();
+    if (!safeId) return { ok: false, message: "无效的 pack id" };
+
+    const dest = path.join(USER_PACKS_DIR(), safeId);
+    if (fssync.existsSync(dest) && !overwrite) {
+      return {
+        ok: false,
+        needsOverwrite: true,
+        id: safeId,
+        name: manifest.name,
+        message: `已存在同 id 扩展包「${manifest.name || safeId}」，是否覆盖？`,
+      };
+    }
+
+    await fs.mkdir(dest, { recursive: true });
+    // 清空旧内容（覆盖）
+    if (overwrite && fssync.existsSync(dest)) {
+      const old = await fs.readdir(dest);
+      for (const name of old) {
+        await fs.rm(path.join(dest, name), { recursive: true, force: true });
+      }
+    }
+
+    const entries = Object.keys(zip.files);
+    for (const name of entries) {
+      const entry = zip.files[name];
+      if (!entry || entry.dir) continue;
+      let rel = name.replace(/\\/g, "/");
+      if (rootPrefix && rel.startsWith(rootPrefix)) {
+        rel = rel.slice(rootPrefix.length);
+      }
+      if (!rel || rel.includes("..")) continue;
+      const outPath = path.join(dest, ...rel.split("/").filter(Boolean));
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      const content = await entry.async("nodebuffer");
+      await fs.writeFile(outPath, content);
+    }
+
+    return {
+      ok: true,
+      message: `已导入「${manifest.name}」`,
+      id: safeId,
+      name: manifest.name,
+      dir: dest,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
 });
 
 ipcMain.handle("app:checkUpdates", async () => {
