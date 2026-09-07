@@ -95,6 +95,12 @@ export type AppSettings = {
   shopUrl?: string;
   /** 闲鱼购买提示文案 */
   xianyuTip?: string;
+  /** Studio 编辑器引擎；默认 codemirror，可回退 textarea */
+  editorEngine?: "textarea" | "codemirror";
+  /** 保存正文时自动写入知识库切片；默认 true */
+  kbAutoIndexChapters?: boolean;
+  /** 启用 embedding 向量检索；默认 false；无 API 时回退 MiniSearch */
+  kbEmbeddingEnabled?: boolean;
 };
 
 export type LicenseBridgeStatus = {

@@ -30,6 +30,7 @@ import {
 import { countTextWords } from "../lib/projectProgress";
 import { addUsage } from "../lib/usageLedger";
 import { estimateCostCny, loadPrices, pickPrice } from "../lib/costEstimate";
+import { indexChapterToKb } from "../lib/kb";
 import { runWritePipeline } from "../lib/writePipeline";
 import { resolveChapterTargetWords } from "../lib/writePipelineUtils";
 import type { AppSettings } from "../types";
@@ -502,6 +503,13 @@ export function StudioPage() {
           title: chapterTitle,
           body: v,
         });
+        if (settings.kbAutoIndexChapters !== false) {
+          try {
+            await indexChapterToKb(project.root, join, chapterId, v);
+          } catch {
+            /* 索引失败不挡保存 */
+          }
+        }
         setHint("正文已自动保存");
       }
     },
@@ -535,6 +543,13 @@ export function StudioPage() {
         title: chapterTitle,
         body: v,
       });
+      if (settings.kbAutoIndexChapters !== false) {
+        try {
+          await indexChapterToKb(project.root, join, chapterId, v);
+        } catch {
+          /* 索引失败不挡保存 */
+        }
+      }
       setHint("正文已保存");
     }
   }, [
@@ -547,6 +562,7 @@ export function StudioPage() {
     chapterId,
     chapterTitle,
     refreshVolumes,
+    settings.kbAutoIndexChapters,
   ]);
 
   const saveNowRef = useRef(saveNow);

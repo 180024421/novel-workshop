@@ -165,6 +165,9 @@ export function SettingsPage() {
         focus: settings.hotkeys?.focus || "F11",
         search: settings.hotkeys?.search || "Control+F",
       },
+      editorEngine: settings.editorEngine === "textarea" ? "textarea" : "codemirror",
+      kbAutoIndexChapters: settings.kbAutoIndexChapters !== false,
+      kbEmbeddingEnabled: Boolean(settings.kbEmbeddingEnabled),
     });
   }, [settings]);
   useEffect(() => setList(providers), [providers]);
@@ -728,6 +731,35 @@ export function SettingsPage() {
             <option value="0">关</option>
           </select>
         </div>
+        <label className="muted" style={{ fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={form.kbAutoIndexChapters !== false}
+            onChange={(e) => {
+              const next = { ...form, kbAutoIndexChapters: e.target.checked };
+              setForm(next);
+              void persist(list, next);
+            }}
+          />{" "}
+          保存正文时自动写入知识库切片
+        </label>
+        <label className="muted" style={{ fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(form.kbEmbeddingEnabled)}
+            onChange={(e) => {
+              const next = { ...form, kbEmbeddingEnabled: e.target.checked };
+              setForm(next);
+              void persist(list, next);
+            }}
+          />{" "}
+          启用 Embedding 向量检索（实验）
+        </label>
+        {form.kbEmbeddingEnabled ? (
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
+            当前引擎未配置 Embedding API，检索仍回退 MiniSearch，不影响写作。
+          </p>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection
@@ -736,6 +768,23 @@ export function SettingsPage() {
         open={openSections.appearance}
         onToggle={toggleSection}
       >
+        <div className="field">
+          <label>Studio 编辑器引擎</label>
+          <select
+            value={form.editorEngine === "textarea" ? "textarea" : "codemirror"}
+            onChange={(e) => {
+              const next = {
+                ...form,
+                editorEngine: e.target.value === "textarea" ? "textarea" as const : "codemirror" as const,
+              };
+              setForm(next);
+              void persist(list, next);
+            }}
+          >
+            <option value="codemirror">CodeMirror（默认）</option>
+            <option value="textarea">纯文本框（兼容回退）</option>
+          </select>
+        </div>
         <div className="field">
           <label>正文编辑器字号（{form.editorFontSize || 16}px）</label>
           <input

@@ -120,6 +120,9 @@ function normalizeSettings(s: Partial<AppSettings> | null | undefined): AppSetti
     updateChannel: s?.updateChannel === "beta" ? "beta" : "stable",
     shopUrl: typeof s?.shopUrl === "string" ? s.shopUrl : "",
     xianyuTip: typeof s?.xianyuTip === "string" ? s.xianyuTip : "",
+    editorEngine: s?.editorEngine === "textarea" ? "textarea" : "codemirror",
+    kbAutoIndexChapters: s?.kbAutoIndexChapters !== false,
+    kbEmbeddingEnabled: Boolean(s?.kbEmbeddingEnabled),
   };
 }
 

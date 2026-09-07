@@ -6,6 +6,10 @@ const CHUNK_OVERLAP = 80;
 
 export const KB_TAG_OPTIONS = ["节奏", "对白", "战斗", "环境", "感情"] as const;
 
+export function chapterKbSource(chapterId: string): string {
+  return `chapter:${chapterId}`;
+}
+
 export function chunkText(source: string, text: string, tags: string[] = []): KbChunk[] {
   const clean = text.replace(/\r\n/g, "\n").trim();
   if (!clean) return [];
@@ -43,16 +47,24 @@ export function buildSearch(chunks: KbChunk[]) {
   return ms;
 }
 
+export type RetrieveChunksOpts = {
+  /** 仅检索 source 以此前缀开头的片段（如 `chapter:` 或 `chapter:第3章`） */
+  sourcePrefix?: string;
+};
+
 export function retrieveChunks(
   chunks: KbChunk[],
   query: string,
   limit = 5,
-  preferredTags: string[] = []
+  preferredTags: string[] = [],
+  opts?: RetrieveChunksOpts
 ): KbChunk[] {
-  if (!chunks.length || !query.trim()) return [];
-  const ms = buildSearch(chunks);
+  const prefix = opts?.sourcePrefix?.trim();
+  const pool = prefix ? chunks.filter((c) => c.source.startsWith(prefix)) : chunks;
+  if (!pool.length || !query.trim()) return [];
+  const ms = buildSearch(pool);
   const hits = ms.search(query, { combineWith: "OR" });
-  const byId = new Map(chunks.map((c) => [c.id, c]));
+  const byId = new Map(pool.map((c) => [c.id, c]));
   const pref = new Set(preferredTags.filter(Boolean));
   const scored = hits
     .map((h) => {
@@ -69,6 +81,36 @@ export function retrieveChunks(
     .filter(Boolean) as { c: KbChunk; score: number }[];
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit).map((x) => x.c);
+}
+
+/** 当前客户端无独立 embedding 端点时恒为 false；开开关后仍回退 MiniSearch */
+export function kbEmbeddingApiReady(_providers?: unknown): boolean {
+  return false;
+}
+
+/**
+ * 将某一章正文切片写入 kb/index.json（替换该章旧切片）。
+ * embedding 未就绪时仅写文本切片，检索仍走 MiniSearch。
+ */
+export async function indexChapterToKb(
+  root: string,
+  join: (...parts: string[]) => Promise<string>,
+  chapterId: string,
+  body: string
+): Promise<void> {
+  if (!window.moshu || !chapterId.trim()) return;
+  const source = chapterKbSource(chapterId);
+  const path = await join(root, "kb", "index.json");
+  const idx = await window.moshu.readJson<{ chunks: KbChunk[] }>(path, { chunks: [] });
+  const without = (idx.chunks || []).filter((c) => c.source !== source);
+  const tags = ["正文", ...inferKbTags(body)];
+  const nextChunks = body.trim()
+    ? [...without, ...chunkText(source, body, [...new Set(tags)])]
+    : without;
+  await window.moshu.writeJson(path, {
+    chunks: nextChunks,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 /** 从细纲文字推断偏好标签 */
