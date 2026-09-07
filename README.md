@@ -20,8 +20,10 @@
 - **导出**：TXT / EPUB / DOCX；侧栏「更多」或 Studio 顶栏快捷按钮  
 - **章 Diff**：备份对比、块级采纳与整章还原（ChapterTools）  
 - **写作预设**：quality（流水线）/ fast（单次落稿）；可跳过润色/细纲自检  
-- **知识库**：范文切片检索；保存正文可自动索引本章（默认开）；Embedding 默认关、无 API 时回退 MiniSearch  
+- **知识库**：范文切片检索；保存正文可自动索引本章（默认开）；可选 Embedding 向量重排（默认关，失败回退 MiniSearch）  
+- **章摘要 / 实体卡 / 节奏统计 / 改稿队列 / 双稿 A/B / 细纲对齐 / 平台排版**：Wave 6 连载护城河能力  
 - **Studio 编辑器**：默认 CodeMirror 6（设置可回退 textarea）  
+- **本地模型预设**：Ollama / LM Studio 渠道模板  
 - **定时本地备份**：设置里按小时自动 zip（仅本机）  
 - **试用与授权**：首次启动起 **14 天试用**；设置中填写 `MOSHU-XXXX-XXXX-XXXX` 或演示码 `MOSHU-DEMO-FULL-ACCESS`。试用到期后软禁用「生成」按钮，不阻拦打开书稿。
 

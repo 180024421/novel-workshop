@@ -388,23 +388,23 @@ type ExportFormat = "markdown" | "qidian" | "feilu" | "plain" | "epub" | "docx";
 
 ## 14. 验收总清单（产品）
 
-- [ ] 写章后能与写前备份 Diff，并能块级采纳或整章还原
-- [ ] 配角未出场不再误报；细纲出场人名未写才告警
-- [ ] 预设 fast/quality 可切换；批量可断点续跑与重试失败
-- [ ] 可跳过 polish/beats；失败可从该阶段重试
-- [ ] TXT/MD 导入可建书并进 Studio
-- [ ] 可导出 EPUB、DOCX，可读
-- [ ] 本地 zip 扩展包可导入应用
-- [ ] 伏笔可设到期、筛选、跳转章节
-- [ ] 卷体检产出 Markdown 报告
-- [ ] 统计页展示字数/成本/连续天
+- [x] 写章后能与写前备份 Diff，并能块级采纳或整章还原
+- [x] 配角未出场不再误报；细纲出场人名未写才告警
+- [x] 预设 fast/quality 可切换；批量可断点续跑与重试失败
+- [x] 可跳过 polish/beats；失败可从该阶段重试
+- [x] TXT/MD 导入可建书并进 Studio
+- [x] 可导出 EPUB、DOCX，可读
+- [x] 本地 zip 扩展包可导入应用
+- [x] 伏笔可设到期、筛选、跳转章节
+- [x] 卷体检产出 Markdown 报告
+- [x] 统计页展示字数/成本/连续天
 - [x] Studio 拆分后主流程无回归；长章编辑可用 CM6
-- [ ] 设置 Tab 可找到原有全部配置
+- [x] 设置 Tab 可找到原有全部配置
 - [x] 新增纯函数单测通过（`npm test`）
 
 ## 15. 文档与版本
 
 - 本规格：`docs/superpowers/specs/2026-09-07-feature-wave-design.md`
-- 实施计划（待规格确认后）：`docs/superpowers/plans/2026-09-07-feature-waves.md`
-- 签名占位：`docs/signing-notes.md`（Wave 3 或 5 附带）
-- 版本建议：功能全集合并后 bump `0.2.0`
+- 实施计划：`docs/superpowers/plans/2026-09-07-feature-waves.md`
+- 签名占位：`docs/signing-notes.md`
+- 版本：`0.2.0`
