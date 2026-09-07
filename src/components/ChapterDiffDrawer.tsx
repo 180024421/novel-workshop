@@ -4,6 +4,7 @@ import { restoreBackup, type BackupMeta } from "../lib/backup";
 import {
   acceptAllRight,
   applyChunks,
+  DIFF_CHAR_SOFT_LIMIT,
   diffParagraphs,
   type DiffChunk,
 } from "../lib/textDiff";
@@ -36,6 +37,7 @@ export function ChapterDiffDrawer(props: Props) {
   const [mode, setMode] = useState<"side" | "unified">("side");
   const [accepted, setAccepted] = useState<number[]>([]);
 
+  const overSoftLimit = leftText.length + rightText.length > DIFF_CHAR_SOFT_LIMIT;
   const chunks = useMemo(() => diffParagraphs(leftText, rightText), [leftText, rightText]);
   const changeIndexes = useMemo(
     () => chunks.map((c, i) => (c.type === "equal" ? -1 : i)).filter((i) => i >= 0),
@@ -95,6 +97,11 @@ export function ChapterDiffDrawer(props: Props) {
         <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
           左：{leftLabel} · 右：当前正文 · 勾选变更块后「采纳所选」
         </p>
+        {overSoftLimit ? (
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
+            过长已整章对比
+          </p>
+        ) : null}
         <div className={`diff-body ${mode === "side" ? "diff-side" : "diff-unified"}`}>
           {chunks.map((c, i) => (
             <DiffBlock
