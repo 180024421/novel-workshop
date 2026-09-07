@@ -178,9 +178,9 @@
 **Files:**
 - Modify: `src/lib/kb.ts`、`types.ts`、Settings、保存正文钩子（Studio/auto-save）
 
-- [ ] `kbAutoIndexChapters` 默认 true；`retrieveChunks` 支持 source 过滤
-- [ ] `kbEmbeddingEnabled` 默认 false；无 embedding 端点则提示回退
-- [ ] Commit `feat(kb): chapter auto-index and volume filter`
+- [x] `kbAutoIndexChapters` 默认 true；`retrieveChunks` 支持 source 过滤
+- [x] `kbEmbeddingEnabled` 默认 false；无 embedding 端点则提示回退
+- [x] Commit `feat(kb): chapter auto-index and volume filter`
 
 ### Task 14: Studio 拆分
 
@@ -188,8 +188,8 @@
 - Create: `src/pages/studio/StudioEditorPane.tsx`、`StudioAgentPanel.tsx`、`StudioBeatsDrawer.tsx`、`useStudioDocument.ts`、`useStudioGenerate.ts`
 - Modify: `src/pages/StudioPage.tsx` 变薄壳
 
-- [ ] 行为对照：Ctrl+S、四步 mode、生成、Agent
-- [ ] Commit `refactor(studio): split StudioPage into modules`
+- [x] 行为对照：Ctrl+S、四步 mode、生成、Agent
+- [x] Commit `refactor(studio): split StudioPage into modules`
 
 ### Task 15: CodeMirror 6 编辑器
 
@@ -198,7 +198,7 @@
 - Create: `src/components/StudioCodeEditor.tsx`
 - Modify: Studio 编辑区 + `editorEngine` 设置
 
-- [ ] Commit `feat(editor): CodeMirror 6 engine with textarea fallback`
+- [x] Commit `feat(editor): CodeMirror 6 engine with textarea fallback`
 
 ### Task 16: 版本与 README
 
@@ -207,8 +207,8 @@
 - Modify: `README.md` 补充新功能条目
 - Modify: spec 状态为已实现（全部勾选后）
 
-- [ ] `npm test` 全绿
-- [ ] Commit `chore: bump 0.2.0 and refresh README`
+- [x] `npm test` 全绿
+- [x] Commit `chore: bump 0.2.0 and refresh README`
 
 ---
 
