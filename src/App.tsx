@@ -14,6 +14,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { PacksPage } from "./pages/PacksPage";
 import { VolumesPage } from "./pages/VolumesPage";
 import { QuickStartPage } from "./pages/QuickStartPage";
+import { ImportPage } from "./pages/ImportPage";
 
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { bootstrapped, llmReady } = useApp();
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/setup" element={<SetupWizard />} />
           <Route path="/quick-start" element={<QuickStartPage />} />
+          <Route path="/import" element={<ImportPage />} />
           <Route path="/app" element={<AppLayout />}>
             <Route index element={<Navigate to="idea" replace />} />
             <Route path="idea" element={<StudioPage />} />

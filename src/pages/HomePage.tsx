@@ -326,6 +326,14 @@ export function HomePage() {
           >
             一句话开书
           </button>
+          <button
+            className="btn"
+            disabled={busy}
+            type="button"
+            onClick={() => nav("/import")}
+          >
+            导入书稿
+          </button>
           <button className="btn" disabled={busy} onClick={() => void openExisting()}>
             打开
           </button>
