@@ -55,21 +55,44 @@ npm run pack:linux
 
 1. 通过设置页配置的**商城链接**或**闲鱼提示**购买卡密（客户端不内嵌支付密钥）。
 2. 打开 **设置 → 授权中心**，粘贴卡密 → **兑换 / 激活**。
-3. 客户端会提交设备指纹到 `POST /api/app-license/dashuai-moshu/redeem`，校验返回的 Ed25519 ticket 后写入本地 `userData/license/`。
+3. 客户端通过 v1 加密信封提交设备指纹与卡密，校验返回的 Ed25519 ticket 后写入本地 `userData/license/`。
 4. 可在授权中心 **解绑本机** 以腾出设备席位；**刷新状态** 可联网续签 ticket。
 
 试用：自首次启动起 **14 天**。试用到期且无有效授权时，**仅软禁用生成**，仍可打开书稿。
+
+#### 授权接口与传输
+
+以 Electron 主进程实现为准，当前客户端先 `GET /api/crypto/public-key` 获取服务端 RSA 公钥，再对以下敏感接口发起 `POST`：
+
+- `/api/app-license/dashuai-moshu/redeem`（scope：`app-license.redeem`）
+- `/api/app-license/dashuai-moshu/status`（scope：`app-license.status`）
+- `/api/app-license/dashuai-moshu/unbind`（scope：`app-license.unbind`）
+
+请求使用 v1 **RSA-OAEP（SHA-256）+ AES-256-GCM** 加密信封，服务端响应也必须是可认证解密的加密数据。信封包含 `version`、`keyId`、`timestamp`、`requestId`、`scope`、`iv`、`encryptedKey`、`ciphertext`；卡密、设备指纹和 ticket 不再明文提交。
+
+本项目没有调用远程 `usage-history` 接口；写作字数与费用历史仅保存在本机 `userData/usage.json`。因此这里不声明不存在的远程路径或参数。授权 `status` 已明确使用 `POST`，不能按旧版 `GET` 或明文请求接入。
+
+旧客户端若仍使用明文授权协议，将无法与只接受 v1 加密信封的授权服务兼容，必须升级到包含该协议实现的新版后再激活、刷新或解绑。本仓源码版本为 `0.5.0`；实际安装版本以应用内更新提示和正式发布包为准。
 
 配置：
 
 - API 根地址：设置里的「更新源地址」（`updateApiBase`），默认与大帅阅读同一公网入口。
 - 验票公钥：构建时 `VITE_APP_LICENSE_PUBLIC_KEY` / 主进程 `APP_LICENSE_TICKET_PUBLIC_KEY`（见 `.env.example`）。**切勿**把私钥打进客户端。
 
+#### 授权地址与网络排障
+
+- 默认 API 根地址为 `https://1ph1hf8043323.vicp.fun`；自定义「更新源地址」时只填写根地址，不要追加 `/api/app-license/...`。
+- 激活、刷新或解绑失败时，先确认系统时间正确，并确认当前网络、代理、防火墙或 DNS 能以 HTTPS 访问根地址及 `GET /api/crypto/public-key`。公钥请求失败时，后续敏感请求不会发送。
+- 若公钥能获取但授权仍失败，检查服务端是否支持上述 v1 信封、对应 scope 和加密响应；不要改用明文请求绕过。
+- 临时断网时，客户端会验证本地 ticket；未过期则显示使用缓存授权。ticket 过期、验签失败或设备指纹变化时仍需恢复网络刷新。
+
 ### 更新
 
 - 启动时可静默检查；设置页可手动检查 / 下载。
 - 频道：**正式** `dashuai-moshu` / **测试** `dashuai-moshu-beta`。
 - 下载完成后校验服务端 `desktopSha256` / `downloadSha256`；`forceUpdate` 时会阻止生成并提示必须更新。
+- 升级时运行新安装包覆盖安装，不要删除书稿目录或 Electron `userData`。默认书稿在「文档/大帅墨枢」，自选项目仍在用户选择的目录；授权 ticket、设备 machine-id 与缓存位于 `userData/license/`。它们都与程序安装目录分离。
+- Windows 安装包配置为卸载时不主动删除应用数据，但手工清理 `userData`、删除书稿目录或使用清理工具仍会造成数据/授权缓存丢失；升级前建议先做本地 zip 备份。
 
 ### 公告与维护
 

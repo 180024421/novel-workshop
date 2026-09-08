@@ -8,12 +8,18 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const os = require("os");
+const { encryptedFetch } = require("./crypto-transport.cjs");
 
 const APP_KEY_STABLE = "dashuai-moshu";
 const APP_KEY_BETA = "dashuai-moshu-beta";
 const PUBLIC_UPDATE_BASE = "https://1ph1hf8043323.vicp.fun";
 const REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_GRACE_MS = 72 * 60 * 60 * 1000;
+const LICENSE_SCOPES = Object.freeze({
+  redeem: "app-license.redeem",
+  status: "app-license.status",
+  unbind: "app-license.unbind",
+});
 
 /**
  * Ed25519 SPKI base64url — 与 jiaoben APP_LICENSE_TICKET_PUBLIC_KEY / desk-reader 一致。
@@ -240,19 +246,14 @@ async function postLicense(action, settings, cardCode) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${apiBase}/api/app-license/${appKey}/${action}`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(messageFromPayload(payload, `授权请求失败（HTTP ${response.status}）`));
-    }
+    const payload = await encryptedFetch(
+      `${apiBase}/api/app-license/${appKey}/${action}`,
+      LICENSE_SCOPES[action],
+      body,
+      {
+        signal: controller.signal,
+      }
+    );
     if (payload && typeof payload === "object") {
       const code = Number(payload.code);
       if (payload.success === false || (Number.isFinite(code) && code >= 400)) {
@@ -402,6 +403,7 @@ module.exports = {
   APP_KEY_STABLE,
   APP_KEY_BETA,
   PUBLIC_UPDATE_BASE,
+  LICENSE_SCOPES,
   EMBEDDED_PUBLIC_KEY_B64URL,
   getDeviceFingerprint,
   getDeviceName,

@@ -17,7 +17,8 @@
     "pack:mac": "npm run build && electron-builder --mac --arm64 --x64 dir zip",
     "pack:linux": "npm run build && electron-builder --linux AppImage deb --x64",
     "pack:linux:arm64": "npm run build && electron-builder --linux AppImage --arm64",
-    "test": "vitest run",
+    "test": "node --test electron/*.test.cjs && vitest run",
+    "test:protocol": "node --test electron/crypto-transport.test.cjs",
     "dist": "npm run build && electron-builder --win --x64",
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:mac": "npm run build && electron-builder --mac --arm64 --x64"
