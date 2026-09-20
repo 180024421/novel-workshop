@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+
+      # CI 不启动 Electron 也不打包，跳过 ~110MB 二进制下载
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      # TODO: 清理完 39 个存量 warning 后改为 npm run lint -- --deny-warnings
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (electron)
+        run: node --test electron/*.test.cjs
+
+      - name: Unit tests (renderer)
+        run: npx vitest run
