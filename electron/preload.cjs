@@ -61,8 +61,10 @@ contextBridge.exposeInMainWorld("moshu", {
   notify: (payload) => ipcRenderer.invoke("app:notify", payload),
   chat: (payload) => ipcRenderer.invoke("llm:chat", payload),
   abortChat: (requestId) => ipcRenderer.invoke("llm:abort", requestId),
-  onChatDelta: (cb) => {
-    const handler = (_e, text) => cb(text);
+  onChatDelta: (requestId, cb) => {
+    const handler = (_e, data) => {
+      if (data && data.requestId === requestId) cb(data.delta);
+    };
     ipcRenderer.on("llm:delta", handler);
     return () => ipcRenderer.removeListener("llm:delta", handler);
   },

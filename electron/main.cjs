@@ -7,6 +7,7 @@ const tray = require("./tray.cjs");
 const projectBackup = require("./project-backup.cjs");
 const license = require("./license.cjs");
 const appMeta = require("./app-meta.cjs");
+const { writeJsonAtomic } = require("./atomic-json.cjs");
 const JSZip = require("jszip");
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -86,8 +87,7 @@ async function readJson(file, fallback) {
 }
 
 async function writeJson(file, data) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
+  await writeJsonAtomic(file, data);
 }
 
 function createWindow() {
@@ -767,7 +767,7 @@ ipcMain.handle("llm:abort", (_e, requestId) => {
   return false;
 });
 
-ipcMain.handle("llm:chat", async (_e, payload) => {
+ipcMain.handle("llm:chat", async (event, payload) => {
   const {
     requestId = `req_${Date.now()}`,
     baseUrl,
@@ -818,7 +818,7 @@ ipcMain.handle("llm:chat", async (_e, payload) => {
     const decoder = new TextDecoder("utf-8");
     let full = "";
     let buffer = "";
-    const sender = mainWindow?.webContents;
+    const sender = event.sender;
 
     while (true) {
       if (ac.signal.aborted) {
@@ -840,7 +840,7 @@ ipcMain.handle("llm:chat", async (_e, payload) => {
           const delta = json?.choices?.[0]?.delta?.content ?? "";
           if (delta) {
             full += delta;
-            sender?.send("llm:delta", delta);
+            sender?.send("llm:delta", { requestId, delta });
           }
         } catch {
           /* ignore */

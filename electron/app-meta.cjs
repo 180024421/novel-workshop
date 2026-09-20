@@ -5,7 +5,7 @@
 const { app } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const fsp = require("fs/promises");
+const { writeJsonAtomic } = require("./atomic-json.cjs");
 
 const PUBLIC_UPDATE_BASE = "https://1ph1hf8043323.vicp.fun";
 const APP_KEY = "dashuai-moshu";
@@ -42,8 +42,7 @@ function readCache() {
 }
 
 async function writeCache(data) {
-  await fsp.mkdir(path.dirname(cachePath()), { recursive: true });
-  await fsp.writeFile(cachePath(), JSON.stringify(data, null, 2), "utf8");
+  await writeJsonAtomic(cachePath(), data);
 }
 
 function normalize(raw, status) {

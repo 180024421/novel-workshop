@@ -73,7 +73,7 @@ async function chatOne(
     if (window.moshu?.chat) {
       let off: (() => void) | undefined;
       if (opts.stream && opts.onDelta && window.moshu.onChatDelta) {
-        off = window.moshu.onChatDelta(opts.onDelta);
+        off = window.moshu.onChatDelta(requestId, opts.onDelta);
       }
       try {
         const res = await window.moshu.chat(payload);

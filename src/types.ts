@@ -234,7 +234,7 @@ declare global {
         max_tokens?: number;
       }) => Promise<{ content: string; providerModel: string }>;
       abortChat?: (requestId: string) => Promise<boolean>;
-      onChatDelta: (cb: (text: string) => void) => () => void;
+      onChatDelta: (requestId: string, cb: (text: string) => void) => () => void;
       listPacks?: () => Promise<string[]>;
       listUserPacks?: () => Promise<string[]>;
       importPackZip?: (

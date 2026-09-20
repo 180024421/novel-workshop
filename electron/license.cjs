@@ -5,10 +5,10 @@
 const { app } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const fsp = require("fs/promises");
 const crypto = require("crypto");
 const os = require("os");
 const { encryptedFetch } = require("./crypto-transport.cjs");
+const { writeJsonAtomic } = require("./atomic-json.cjs");
 
 const APP_KEY_STABLE = "dashuai-moshu";
 const APP_KEY_BETA = "dashuai-moshu-beta";
@@ -76,8 +76,7 @@ function readJsonSync(file, fallback) {
 }
 
 async function writeJson(file, data) {
-  await fsp.mkdir(path.dirname(file), { recursive: true });
-  await fsp.writeFile(file, JSON.stringify(data, null, 2), "utf8");
+  await writeJsonAtomic(file, data);
 }
 
 function getOrCreateMachineId() {
