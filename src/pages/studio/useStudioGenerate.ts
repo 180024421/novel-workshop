@@ -13,7 +13,7 @@ import {
 } from "../../lib/prompts";
 import { countTextWords } from "../../lib/projectProgress";
 import { addUsage } from "../../lib/usageLedger";
-import { estimateCostCny, loadPrices, pickPrice } from "../../lib/costEstimate";
+import { estimateCostCny, loadPrices, pickPrice, type PriceRow } from "../../lib/costEstimate";
 import { runWritePipeline } from "../../lib/writePipeline";
 import { resolveChapterTargetWords } from "../../lib/writePipelineUtils";
 import {
@@ -24,6 +24,24 @@ import {
 import type { ProviderConfig } from "../../lib/providerPresets";
 import type { AppSettings, OpenedProject } from "../../types";
 import type { VolumeEntry } from "../../lib/volumes";
+import {
+  appendChapterListLine,
+  ensureVolumeBeatsFile,
+  loadChapterBeatsText,
+  upsertChapterBeats,
+  volumeBeatsPath,
+} from "../../lib/volumes";
+import {
+  EMPTY_QUEUE_STATE,
+  QuotaBlockedError,
+  runQueue,
+  transition,
+  type GateDecision,
+  type QueueEvent,
+} from "../../components/workbench/queueLogic";
+import { notifyChaptersDirty } from "../../components/workbench/chapterOps";
+import { buildPreflight } from "../../components/workbench/preflight";
+import type { ChapterQueueState, MaterialKey, MaterialLamp, QueueAction } from "../../components/workbench/types";
 import { NEXT_STEP, modeLabel, stripFences, type EditScope } from "./studioShared";
 
 type DocApi = {
@@ -35,6 +53,7 @@ type DocApi = {
   setOutline: (v: string) => void;
   style: string;
   chapterBeats: string;
+  setChapterBeats: (v: string) => void;
   messages: AgentMsg[];
   setMessages: (v: AgentMsg[] | ((prev: AgentMsg[]) => AgentMsg[])) => void;
   setHint: (h: string) => void;
@@ -89,6 +108,7 @@ export function useStudioGenerate({
     setOutline,
     style,
     chapterBeats,
+    setChapterBeats,
     messages,
     setMessages,
     setHint,
@@ -598,6 +618,320 @@ export function useStudioGenerate({
 
   generateFromChatRef.current = generateFromChat;
 
+  /* ============================================================
+   * Flow C：自动续章队列（runQueue 驱动 + 同步状态镜像）
+   * ============================================================ */
+  const [queue, setQueue] = useState<ChapterQueueState>(EMPTY_QUEUE_STATE);
+  // 同步镜像：emit 与 gate 在同一 microtask 内竞态，不能依赖 setState 提交时机
+  const queueRef = useRef<ChapterQueueState>(EMPTY_QUEUE_STATE);
+  const gateResolverRef = useRef<((d: GateDecision) => void) | null>(null);
+  const queueAbortRef = useRef<AbortController | null>(null);
+  // 异步循环里读取的当前值镜像（避免闭包捕获旧 chapterId 等）
+  const chapterIdRef = useRef(chapterId);
+  chapterIdRef.current = chapterId;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
+
+  function queueEvent(ev: QueueEvent) {
+    const next = transition(queueRef.current, ev);
+    queueRef.current = next;
+    setQueue(next);
+  }
+
+  function resolveGate(decision: GateDecision) {
+    const r = gateResolverRef.current;
+    gateResolverRef.current = null;
+    r?.(decision);
+  }
+
+  /**
+   * 挂机语义：正常连写与单次失败不阻塞（自动 continue / skip），
+   * 只有连续失败自动暂停 / 用户手动暂停 / 额度阻断时才等待人工介入。
+   */
+  function queueGate(
+    phase: "before-chapter" | "after-failure",
+    chapter: number
+  ): Promise<GateDecision> {
+    const s = queueRef.current;
+    const manualHold = s.pausedForReview || s.quotaBlocked;
+    if (phase === "before-chapter") {
+      if (s.running && !manualHold) return Promise.resolve("continue");
+      if (manualHold) {
+        return new Promise((res) => {
+          gateResolverRef.current = res;
+        });
+      }
+      return Promise.resolve("stop");
+    }
+    // after-failure：非暂停态 → 自动跳过本章，保住整夜挂机
+    if (!s.running || manualHold) {
+      return new Promise((res) => {
+        gateResolverRef.current = res;
+      });
+    }
+    void chapter;
+    return Promise.resolve("skip");
+  }
+
+  async function queueWriteChapter(
+    chapter: number,
+    signal: AbortSignal
+  ): Promise<{ words: number }> {
+    if (!project || !window.moshu) throw new Error("桌面文件桥接不可用");
+    if (!license.ok) throw new QuotaBlockedError(license.reason || "授权失效，队列已停在额度线前");
+    const cid = `第${chapter}章`;
+    const beats = await loadChapterBeatsText({
+      root: project.root,
+      join,
+      chapterId: cid,
+    });
+    if (!beats.text.trim()) {
+      throw new Error(`「${cid}」还没有细纲，先去细纲页补章`);
+    }
+    let title = "";
+    const vol = (await refreshVolumes()).find((v) =>
+      v.chapters.some((c) => c.id === cid)
+    );
+    title = vol?.chapters.find((c) => c.id === cid)?.title || `第${chapter}章`;
+    // 队列正好写到当前打开章：先清空编辑器，避免上一章残稿误导流水线
+    if (modeRef.current === "chapter" && cid === chapterIdRef.current) setDoc("");
+    const result = await runWritePipeline({
+      root: project.root,
+      join,
+      chapterId: cid,
+      chapterTitle: title,
+      settings: settingsRef.current,
+      providers: providersRef.current,
+      targetWords: settingsRef.current.defaultChapterWords ?? 2500,
+      signal,
+      persist: true,
+      onProgress: (p) => {
+        setHint(`队列 · ${cid}：${p.label}`);
+        if (p.bodySoFar != null && cid === chapterIdRef.current && modeRef.current === "chapter") {
+          setDoc(p.bodySoFar);
+        }
+      },
+    });
+    try {
+      const priceRows = await loadPrices(join);
+      const enabled = providersRef.current.find((p) => p.enabled && p.apiKey.trim());
+      const price = pickPrice(priceRows, enabled?.id);
+      await addUsage({
+        words: result.words,
+        costCny: estimateCostCny(8000, result.body.length, price.cnyPer1k),
+      });
+    } catch {
+      /* ignore */
+    }
+    notifyChaptersDirty();
+    return { words: result.words };
+  }
+
+  function startQueue(startChapter: number, targetChapter: number) {
+    if (!project || !window.moshu) return;
+    if (genBlocked.maintenance || genBlocked.forceUpdate) {
+      setErr(genBlocked.reason || "当前不可生成");
+      return;
+    }
+    if (!license.ok) {
+      setErr(license.reason || "试用已到期，请到设置填写授权码");
+      return;
+    }
+    if (!llmReady) {
+      nav("/setup");
+      return;
+    }
+    const ac = new AbortController();
+    queueAbortRef.current = ac;
+    queueEvent({ type: "start", targetChapter, startChapter });
+    void runQueue(startChapter, targetChapter, {
+      writeChapter: queueWriteChapter,
+      emit: queueEvent,
+      gate: queueGate,
+      signal: ac.signal,
+    }).catch((e) => {
+      queueEvent({
+        type: "chapter-failed",
+        chapter: queueRef.current.currentChapter ?? startChapter,
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    });
+  }
+
+  function queueAction(a: QueueAction) {
+    if (a.type === "pause") {
+      // 暂停边界语义：中断在途章（半章留在中间态不落盘），当前章不算失败
+      queueAbortRef.current?.abort();
+      queueAbortRef.current = null;
+    }
+    queueEvent(a);
+    if (a.type === "retry") resolveGate("retry");
+    else if (a.type === "skip") resolveGate("skip");
+    else if (a.type === "resume") resolveGate("continue");
+    else if (a.type === "stop") {
+      resolveGate("stop");
+      queueAbortRef.current?.abort();
+      queueAbortRef.current = null;
+    }
+  }
+
+  function resetQueue() {
+    queueRef.current = EMPTY_QUEUE_STATE;
+    setQueue(EMPTY_QUEUE_STATE);
+  }
+
+  /* ============================================================
+   * Flow A：缺料就地补（内联生成 设定/总纲/本章细纲）
+   * ============================================================ */
+  const [repairTarget, setRepairTarget] = useState<MaterialLamp | null>(null);
+  const [repairing, setRepairing] = useState<MaterialKey | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [repairDoneHint, setRepairDoneHint] = useState<string | null>(null);
+
+  function dismissRepair() {
+    setRepairTarget(null);
+    setRepairError(null);
+    setRepairDoneHint(null);
+  }
+
+  async function repairChatCompletion(system: string, user: string, signal?: AbortSignal) {
+    const out = await chatCompletion(
+      settings,
+      [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      {
+        providers,
+        model: settings.routeOutline || settings.routeChapter || "小说",
+        stream: false,
+        signal,
+      }
+    );
+    return stripFences(out);
+  }
+
+  async function doRepair(lamp: MaterialLamp) {
+    if (!project || !window.moshu) return;
+    if (!llmReady) {
+      nav("/setup");
+      return;
+    }
+    const action = lamp.repairAction;
+    if (action === "gen-setup" && !seed.trim() && !bible.trim()) {
+      // 设定没有可依据的原始想法 → 跳回设定页聊，比盲生成负责
+      setHint("先去「设定」页聊两句原始想法，再回来一键生成");
+      nav("/app/idea");
+      return;
+    }
+    setRepairTarget(lamp);
+    setRepairError(null);
+    setRepairDoneHint(null);
+    setRepairing(lamp.key);
+    try {
+      if (action === "gen-setup") {
+        const text = await repairChatCompletion(
+          generateSystemPrompt("idea"),
+          `【任务：据原始想法生成「设定」草稿】\n原始想法：\n${seed.slice(0, 2000)}\n输出设定 Markdown（卖点/世界观规则/主要人物/风格禁忌），禁止章节列表与正文。`
+        );
+        if (!text.trim()) throw new Error("模型没有返回内容");
+        await window.moshu.writeText(await join(project.root, "bible", "world.md"), text);
+        setHint("设定已就地生成");
+        setRepairDoneHint("已写入 bible/world.md");
+      } else if (action === "gen-outline") {
+        const text = await repairChatCompletion(
+          generateSystemPrompt("outline"),
+          `【任务：据设定生成全书总纲】\n设定：\n${(bible || seed).slice(0, 6000)}\n输出总纲 Markdown（卖点/梗概/世界观/主要人物/主线冲突/分卷主题），严禁第N章列表。`
+        );
+        if (!text.trim()) throw new Error("模型没有返回内容");
+        await window.moshu.writeText(await join(project.root, "outlines", "outline.md"), text);
+        setOutline(text);
+        void refreshVolumes();
+        setHint("总纲已就地生成");
+        setRepairDoneHint(`总纲约 ${countTextWords(text)} 字，已写入 outlines/outline.md`);
+      } else if (action === "gen-beats") {
+        const n = Number(chapterId.match(/\d+/)?.[0] || 1);
+        const text = await repairChatCompletion(
+          generateSystemPrompt("beats"),
+          [
+            `【任务：只为「${chapterId} ${chapterTitle}」生成分章细纲】`,
+            `总纲：\n${(outline || bible).slice(0, 6000)}`,
+            chapterBeats.trim() ? `已有残段（可参考补全）：\n${chapterBeats.slice(0, 1500)}` : "",
+            `输出一个 Markdown 块：首行「## ${chapterId} ${chapterTitle}」，下面 3～6 场（每场一句：地点-冲突-钩子）。不要写正文、不要输出其它章。`,
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+        );
+        if (!text.trim()) throw new Error("模型没有返回内容");
+        const vol = currentVolume || (await refreshVolumes())[0];
+        const volumeIdNext = vol?.id || "第1卷";
+        const ensured = await ensureVolumeBeatsFile({
+          root: project.root,
+          join,
+          volumeId: volumeIdNext,
+        });
+        let md = ensured.text;
+        if (!new RegExp(`第\\s*${n}\\s*章`).test(md)) {
+          md = appendChapterListLine(md, `第${n}章`, chapterTitle || `第${n}章`);
+        }
+        md = upsertChapterBeats(md, `第${n}章`, text);
+        await window.moshu.writeText(
+          await join(project.root, "beats", volumeBeatsPath(volumeIdNext)),
+          md
+        );
+        setChapterBeats(text);
+        void refreshVolumes();
+        notifyChaptersDirty();
+        setHint("本章细纲已就地补齐");
+        setRepairDoneHint(`${chapterId} 细纲已写入「${volumeIdNext}」，可直接生成正文`);
+      }
+    } catch (e) {
+      setRepairError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRepairing(null);
+    }
+  }
+
+  /* ============================================================
+   * Flow D：生成前预检（额度充足 → 主按钮零弹窗）
+   * ============================================================ */
+  const [prices, setPrices] = useState<PriceRow | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const rows = await loadPrices(join);
+        const enabled = providers.find((p) => p.enabled && p.apiKey.trim());
+        setPrices(pickPrice(rows, enabled?.id));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [join, providers]);
+
+  // 无「每日成本预算」概念：授权有效即不限额（Infinity → 预检恒 ok）
+  const estimatedCostCny = useMemo(() => {
+    if (!prices) return 0;
+    return estimateCostCny(
+      Math.min(messages.length * 400 + 4000, 16000),
+      mode === "chapter" ? chapterTargetWords * 1.6 : 4000,
+      prices.cnyPer1k
+    );
+  }, [prices, messages.length, mode, chapterTargetWords]);
+  const remainingQuotaCny = license.ok ? Number.POSITIVE_INFINITY : 0;
+  const preflight = useMemo(
+    () =>
+      buildPreflight({
+        estimatedCostCny,
+        remainingQuotaCny,
+        licenseOk: license.ok,
+      }),
+    [estimatedCostCny, remainingQuotaCny, license.ok]
+  );
+
   async function clearChat() {
     if (messages.length && !(await confirmAction("确定清空当前页的 Agent 对话？"))) return;
     setMessages([]);
@@ -656,5 +990,21 @@ export function useStudioGenerate({
     sendChat,
     generateFromChat,
     clearChat,
+    // Flow C 队列
+    queue,
+    startQueue,
+    queueAction,
+    resetQueue,
+    // Flow A 就地补料
+    repairTarget,
+    repairing,
+    repairError,
+    repairDoneHint,
+    doRepair,
+    dismissRepair,
+    // Flow D 预检
+    preflight,
+    estimatedCostCny,
+    remainingQuotaCny,
   };
 }

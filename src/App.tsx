@@ -1,4 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { App as AntdApp, ConfigProvider } from "antd";
+import { moshuAntdTheme } from "./theme/moshuAntdTheme";
 import { ConfirmHost } from "./components/ConfirmHost";
 import { AppProvider, useApp } from "./state/AppContext";
 import { AppLayout } from "./pages/AppLayout";
@@ -39,7 +41,9 @@ function SetupGate({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AppProvider>
+    <ConfigProvider theme={moshuAntdTheme}>
+      <AntdApp component={false}>
+        <AppProvider>
       <ConfirmHost />
       <SetupGate>
         <Routes>
@@ -73,6 +77,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </SetupGate>
-    </AppProvider>
+        </AppProvider>
+      </AntdApp>
+    </ConfigProvider>
   );
 }

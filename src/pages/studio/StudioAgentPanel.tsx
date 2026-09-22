@@ -1,4 +1,5 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import type { AgentMsg, StudioMode } from "../../lib/agentChatStore";
 import {
   modeAgentHint,
@@ -6,19 +7,30 @@ import {
   modeGenerateListButtonLabel,
 } from "../../lib/prompts";
 import type { VolumeEntry } from "../../lib/volumes";
+import { WorkbenchComposer } from "../../components/workbench/WorkbenchComposer";
+import { PreflightButton } from "../../components/workbench/PreflightButton";
+import { formatQuotaTip } from "../../components/workbench/preflight";
+import type { PreflightResult } from "../../components/workbench/types";
 import { modeLabel, type EditScope } from "./studioShared";
 
 export type StudioAgentPanelProps = {
   mode: StudioMode;
+  /** 工作台节点（物料灯条 / 补料卡 / 队列面板），插在 Agent 栏头部下方 */
+  workbench?: ReactNode;
   editScope: EditScope | null;
   messages: AgentMsg[];
   input: string;
   setInput: (v: string) => void;
   agentBusy: boolean;
   busy: boolean;
+  cancel: () => void;
   generateDisabled: boolean;
   licenseOk: boolean;
   licenseReason?: string;
+  /** Flow D：主生成按钮的内联预检（缺省则退回普通按钮） */
+  preflight?: PreflightResult;
+  estimatedCostCny?: number;
+  remainingQuotaCny?: number;
   chaptersPerVolume: number;
   volumeId: string;
   chapterId: string;
@@ -26,7 +38,6 @@ export type StudioAgentPanelProps = {
   chapterBeats: string;
   currentVolume: VolumeEntry | null;
   doc: string;
-  lastAssistant: AgentMsg | undefined;
   chatEndRef: RefObject<HTMLDivElement | null>;
   clearChat: () => void;
   sendChat: (text?: string) => void;
@@ -35,17 +46,22 @@ export type StudioAgentPanelProps = {
 };
 
 export function StudioAgentPanel(p: StudioAgentPanelProps) {
+  const nav = useNavigate();
   const {
     mode,
+    workbench,
     editScope,
     messages,
     input,
     setInput,
     agentBusy,
     busy,
-    generateDisabled,
+    cancel,
     licenseOk,
     licenseReason,
+    preflight,
+    estimatedCostCny,
+    remainingQuotaCny,
     chaptersPerVolume,
     volumeId,
     chapterId,
@@ -53,13 +69,51 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
     chapterBeats,
     currentVolume,
     doc,
-    lastAssistant,
     chatEndRef,
     clearChat,
     sendChat,
     generateFromChat,
     applyToEditor,
   } = p;
+
+  const quotaTip = preflight ? formatQuotaTip(preflight) : "";
+  const generateSlot = (
+    <>
+      {mode === "beats" && (
+        <PreflightButton
+          label={busy ? "生成中…" : modeGenerateListButtonLabel()}
+          preflight={preflight ?? { ok: licenseOk }}
+          licenseInvalid={!licenseOk}
+          loading={busy}
+          disabled={busy || agentBusy || !messages.length}
+          onProceed={() => void generateFromChat(true, "list")}
+          onUpgrade={() => nav("/app/settings")}
+          onSwitchChannel={() => nav("/setup")}
+          estimatedCostCny={estimatedCostCny}
+          remainingQuotaCny={remainingQuotaCny}
+          buttonProps={{
+            type: "default",
+            title: !licenseOk ? licenseReason : `先落约 ${chaptersPerVolume} 章的目录，再补场次更稳`,
+          }}
+        />
+      )}
+      <PreflightButton
+        label={busy ? "生成中…" : modeGenerateButtonLabel(mode)}
+        preflight={preflight ?? { ok: licenseOk }}
+        licenseInvalid={!licenseOk}
+        loading={busy}
+        disabled={busy || agentBusy || !messages.length}
+        onProceed={() => void generateFromChat(true, "full")}
+        onUpgrade={() => nav("/app/settings")}
+        onSwitchChannel={() => nav("/setup")}
+        estimatedCostCny={estimatedCostCny}
+        remainingQuotaCny={remainingQuotaCny}
+        buttonProps={{
+          title: quotaTip || (!licenseOk ? licenseReason : undefined),
+        }}
+      />
+    </>
+  );
 
   return (
       <aside className="studio-agent">
@@ -75,6 +129,8 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
             清空对话
           </button>
         </div>
+
+        {workbench && <div className="studio-agent-workbench">{workbench}</div>}
 
         <div className="studio-agent-msgs">
           {messages.length === 0 && (
@@ -262,55 +318,27 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
         </div>
 
         <div className="studio-agent-foot">
-          <div className="studio-agent-tools">
-            {mode === "beats" && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-compact"
-                disabled={generateDisabled}
-                onClick={() => void generateFromChat(true, "list")}
-                title={
-                  !licenseOk
-                    ? licenseReason
-                    : `先落约 ${chaptersPerVolume} 章的目录，再补场次更稳`
-                }
-              >
-                {busy ? "生成中…" : modeGenerateListButtonLabel()}
-              </button>
-            )}
-            <button
-              type="button"
-              className={`btn btn-compact ${
-                mode === "chapter" ? "btn-ghost" : "btn-primary"
-              }`}
-              disabled={generateDisabled}
-              title={
-                !licenseOk
-                  ? licenseReason
-                  : mode === "chapter"
-                    ? "对话改稿后再生成；写新章请优先用中间栏「写本章」"
-                    : undefined
-              }
-              onClick={() => void generateFromChat(true, "full")}
-            >
-              {busy ? "生成中…" : modeGenerateButtonLabel(mode)}
-            </button>
-            {lastAssistant?.content.trim() && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-compact"
-                disabled={busy || agentBusy}
-                onClick={() => void applyToEditor(lastAssistant.content, true)}
-              >
-                用最近回复覆盖
-              </button>
-            )}
-          </div>
-          <textarea
-            className="studio-agent-input"
-            rows={3}
-            value={input}
-            disabled={agentBusy}
+          <WorkbenchComposer
+            input={input}
+            setInput={setInput}
+            agentBusy={agentBusy}
+            busy={busy}
+            generateLabel={modeGenerateButtonLabel(mode)}
+            messagesEmpty={messages.length === 0}
+            suggestions={
+              mode === "chapter"
+                ? [
+                    `先聊「${chapterId} ${chapterTitle}」这一章要达成什么情绪与冲突，不要直接写正文`,
+                    "请对照本章细纲做连贯检查：场次是否落全、情绪弧是否断裂、有无跑偏细纲；列出问题并给改写建议（先别整章重写）。",
+                  ]
+                : mode === "beats"
+                  ? [
+                      `「${volumeId}」按网文一卷来排，目标约 ${chaptersPerVolume} 章：先聊本卷简介、开卷钩子、中段升级、卷末高潮（先别写正文）`,
+                    ]
+                  : mode === "outline"
+                    ? ["帮我写全书总纲：卖点、梗概、世界观、主要人物、主线冲突、分卷主题（禁止输出第N章列表）"]
+                    : ["帮我梳理卖点、世界观规则、主角与核心冲突（不要写章节正文）"]
+            }
             placeholder={
               editScope
                 ? `描述如何改「${editScope.label}」… Enter 发送`
@@ -322,22 +350,15 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                       ? "聊本卷简介与章节细纲… Enter 发送"
                       : "聊本章正文，或先划选一段再描述怎么改… Enter 发送"
             }
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void sendChat();
-              }
-            }}
+            onSend={(t) => void sendChat(t)}
+            onCancel={cancel}
+            onGenerate={() => void generateFromChat(true, "full")}
+            canGenerate={licenseOk && !busy && !agentBusy && messages.length > 0}
+            generateBlockReason={
+              !licenseOk ? licenseReason : messages.length === 0 ? "先和 Agent 聊几句再生成" : null
+            }
+            generateSlot={generateSlot}
           />
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={agentBusy || !input.trim()}
-            onClick={() => void sendChat()}
-          >
-            {agentBusy ? "思考中…" : "发送"}
-          </button>
         </div>
       </aside>
   );

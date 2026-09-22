@@ -323,6 +323,7 @@ export function useStudioDocument({
     volumes,
     setVolumes,
     chapterBeats,
+    setChapterBeats,
     hint,
     setHint,
     err,

@@ -14,6 +14,15 @@ import { StudioEditorPane } from "./studio/StudioEditorPane";
 import { EMPTY_VOLUMES, modeFromPath, type StudioMode } from "./studio/studioShared";
 import { useStudioDocument } from "./studio/useStudioDocument";
 import { useStudioGenerate } from "./studio/useStudioGenerate";
+import { buildMaterialLamps } from "../components/workbench/materialLamps";
+import { MaterialStatusBar } from "../components/workbench/MaterialStatusBar";
+import { InlineRepairCard } from "../components/workbench/InlineRepairCard";
+import { QueueLaunchBar } from "../components/workbench/QueueLaunchBar";
+import { QueuePanel } from "../components/workbench/QueuePanel";
+import { QueueProgressChip } from "../components/workbench/QueueProgressChip";
+import { isQueueVisible } from "../components/workbench/queueLogic";
+import { chapterNum } from "../components/workbench/chapterOps";
+import { cny } from "../components/workbench/preflight";
 
 export type { StudioMode };
 
@@ -85,6 +94,7 @@ export function StudioPage() {
     scopeKey,
     refreshVolumes,
     saveNow,
+    setChapterBeats,
   } = docApi;
 
   const currentVolume: VolumeEntry | null =
@@ -114,6 +124,7 @@ export function StudioPage() {
       setOutline,
       style,
       chapterBeats,
+      setChapterBeats,
       messages,
       setMessages,
       setHint,
@@ -264,7 +275,6 @@ export function StudioPage() {
     setHint(`已新建 ${nextId}，可在此卷聊细纲`);
   }
 
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
   const allChapters = useMemo(() => {
     const seen = new Set<string>();
     const list: { id: string; title: string; blurb: string }[] = [];
@@ -281,6 +291,70 @@ export function StudioPage() {
   const fontSize = settings.editorFontSize || 16;
   const lineHeight = settings.editorLineHeight || 1.75;
   const { bg: editorBg, fg: editorFg, theme: editorTheme } = resolveEditorColors(settings);
+
+  /* ===== 工作台（flow-web Phase C）：物料灯条 + 就地补料 + 自动续章队列 ===== */
+  const lamps = useMemo(
+    () => buildMaterialLamps(mode, { bible, outline, chapterBeats }),
+    [mode, bible, outline, chapterBeats]
+  );
+  const maxChapterNum = useMemo(
+    () =>
+      allChapters.reduce((m, c) => Math.max(m, chapterNum(c.id) ?? 0), 0),
+    [allChapters]
+  );
+  const queueStart = maxChapterNum + 1;
+  const licenseOk = gen.license.ok;
+  const licenseReason = gen.license.reason;
+  const workbenchBlocked = !licenseOk
+    ? licenseReason || "授权失效"
+    : gen.busy || gen.agentBusy
+      ? "当前有生成任务在跑"
+      : undefined;
+
+  function jumpQueueChapter(n: number) {
+    const id = `第${n}章`;
+    const hit = allChapters.find((c) => c.id === id);
+    selectChapter(id, hit?.title || id);
+  }
+
+  const workbenchNode = (
+    <>
+      <QueueProgressChip
+        state={gen.queue}
+        onAction={gen.queueAction}
+        onOpen={() => setHint("队列面板在右栏「Agent」下方")}
+      />
+      <MaterialStatusBar lamps={lamps} repairingKey={gen.repairing} onRepair={gen.doRepair} />
+      {gen.repairTarget && (
+        <InlineRepairCard
+          lamp={gen.repairTarget}
+          generating={Boolean(gen.repairing)}
+          error={gen.repairError}
+          resultHint={gen.repairDoneHint}
+          onGenerate={(lamp) => void gen.doRepair(lamp)}
+          onDismiss={gen.dismissRepair}
+        />
+      )}
+      {mode === "chapter" &&
+        (isQueueVisible(gen.queue) ? (
+          <QueuePanel
+            state={gen.queue}
+            onAction={gen.queueAction}
+            onJumpChapter={jumpQueueChapter}
+            onDismiss={gen.resetQueue}
+          />
+        ) : (
+          <QueueLaunchBar
+            defaultTarget={queueStart + 3}
+            startChapter={queueStart}
+            estimatedCost={cny(gen.estimatedCostCny)}
+            remainingQuota={cny(gen.remainingQuotaCny)}
+            blockReason={workbenchBlocked}
+            onStart={(target) => gen.startQueue(queueStart, target)}
+          />
+        ))}
+    </>
+  );
 
   const patchAppear = useCallback(
     async (partial: Partial<AppSettings>) => {
@@ -401,15 +475,20 @@ export function StudioPage() {
       />
       <StudioAgentPanel
         mode={mode}
+        workbench={workbenchNode}
         editScope={gen.editScope}
         messages={messages}
         input={gen.input}
         setInput={gen.setInput}
         agentBusy={gen.agentBusy}
         busy={gen.busy}
+        cancel={gen.cancel}
         generateDisabled={gen.generateDisabled}
-        licenseOk={gen.license.ok}
-        licenseReason={gen.license.reason}
+        licenseOk={licenseOk}
+        licenseReason={licenseReason}
+        preflight={gen.preflight}
+        estimatedCostCny={gen.estimatedCostCny}
+        remainingQuotaCny={gen.remainingQuotaCny}
         chaptersPerVolume={chaptersPerVolume}
         volumeId={volumeId}
         chapterId={chapterId}
@@ -417,7 +496,6 @@ export function StudioPage() {
         chapterBeats={chapterBeats}
         currentVolume={currentVolume}
         doc={doc}
-        lastAssistant={lastAssistant}
         chatEndRef={chatEndRef}
         clearChat={gen.clearChat}
         sendChat={(t) => void gen.sendChat(t)}

@@ -1,0 +1,129 @@
+/* 自动续章队列（Flow C）—— 与 ChapterSidebar.css 同一套变量 */
+
+.wq-launch {
+  padding: 6px 8px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--bg-panel, #121212);
+}
+
+.wq-launch-label {
+  font-size: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.6));
+}
+
+.wq-chip {
+  margin-inline-end: 0;
+}
+
+.wq-panel {
+  padding: 10px 12px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: var(--bg-panel, #121212);
+}
+
+.wq-panel-title {
+  font-size: 13px;
+}
+
+.wq-panel-count {
+  font-size: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.55));
+  font-variant-numeric: tabular-nums;
+}
+
+.wq-current {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--gold, #d4a574);
+}
+
+.wq-fails {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wq-fail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wq-fail-reason {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.55));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wq-summary {
+  margin-top: 10px;
+}
+
+.wq-stats {
+  font-size: 12px;
+  color: var(--muted, rgba(255, 255, 255, 0.65));
+}
+
+.wq-ok {
+  color: var(--ok, #7cbc8e);
+}
+
+.wq-bad {
+  color: var(--danger, #e07a6a);
+}
+
+.wq-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.wq-link {
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg, #fff);
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.wq-link:hover {
+  background: var(--bg-soft, #1a1a1a);
+  color: var(--gold-bright, #e8c9a0);
+}
+
+.wq-link-bad {
+  color: var(--danger, #e07a6a);
+}
+
+/* ---- Flow D 确认弹窗合并 ---- */
+
+.wqg-lines p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.wqg-gap {
+  color: var(--danger, #e07a6a);
+}
+
+.wqg-safe {
+  color: var(--muted, rgba(255, 255, 255, 0.55));
+  font-size: 12px !important;
+}
+
+.wq-preflight-blocked {
+  display: inline-block;
+}

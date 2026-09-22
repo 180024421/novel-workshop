@@ -18,6 +18,15 @@ import { loadJobQueue } from "../lib/jobQueue";
 import { loadProjectProgress, type ProjectProgress } from "../lib/projectProgress";
 import { loadSessionForRoot } from "../lib/session";
 import { addChapterToVolume, createNextVolume } from "../lib/volumes";
+import {
+  applyMoveChapter,
+  applyRemoveChapterFromCatalog,
+  applyRenameChapter,
+  applyRestoreChapterToCatalog,
+  CHAPTERS_DIRTY_EVENT,
+} from "../components/workbench/chapterOps";
+import { ChapterSidebar } from "../components/workbench/ChapterSidebar";
+import type { ChapterRowView } from "../components/workbench/types";
 import { promptText } from "../lib/confirm";
 import { getTodayUsage, goalProgress, type DayUsage } from "../lib/usageLedger";
 import {
@@ -101,7 +110,6 @@ export function AppLayout() {
   const [jobCount, setJobCount] = useState(0);
   const [hasCraft, setHasCraft] = useState(false);
   const [serialWarn, setSerialWarn] = useState(false);
-  const [chapterFilter, setChapterFilter] = useState("");
   const chapterListRef = useRef<HTMLDivElement>(null);
   const [toolsOpen, setToolsOpen] = useState(() => {
     try {
@@ -205,6 +213,20 @@ export function AppLayout() {
   useEffect(() => {
     void refresh();
   }, [refresh, volumeId]);
+
+  // Flow B：章目录变更（队列产章/删章/移动）→ 防抖重算 rows，新章 ≤1s 内出现
+  useEffect(() => {
+    let t = 0;
+    const onDirty = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => void refresh(), 300);
+    };
+    window.addEventListener(CHAPTERS_DIRTY_EVENT, onDirty);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener(CHAPTERS_DIRTY_EVENT, onDirty);
+    };
+  }, [refresh]);
 
   // 定时本地 zip 备份（小时级；0=关）
   useEffect(() => {
@@ -380,7 +402,7 @@ export function AppLayout() {
 
   useEffect(() => {
     if (!chapterId || !chapterListRef.current) return;
-    const el = chapterListRef.current.querySelector(".chapter-nav-item.on");
+    const el = chapterListRef.current.querySelector(".wsb-item.on");
     el?.scrollIntoView({ block: "nearest" });
   }, [chapterId, prog?.chapterRows.length, loc.pathname]);
 
@@ -445,10 +467,74 @@ export function AppLayout() {
   }
 
   function jumpChapter(id: string, title: string, hasChapter: boolean, volId?: string) {
+    // 切章前 flush 当前章的未保存编辑（防串章）
+    window.dispatchEvent(new CustomEvent("moshu:hotkey", { detail: { action: "save" } }));
     setChapterId(id);
     setChapterTitle(title);
     if (volId) setVolumeId(volId);
     nav(hasChapter || loc.pathname.includes("/chapter") ? "/app/chapter" : "/app/beats");
+  }
+
+  /* ===== Flow B 章目录操作（磁盘壳在 chapterOps，UI 只接线） ===== */
+  const lastRemovedRef = useRef<{ row: ChapterRowView; removedLine: string } | null>(null);
+
+  async function sidebarRename(row: ChapterRowView, newTitle: string) {
+    if (!project) return;
+    const ok = await applyRenameChapter({
+      root: project.root,
+      join,
+      volumeId: row.volumeId,
+      chapterId: row.id,
+      newTitle,
+    });
+    if (!ok) throw new Error("卷细纲文件里没找到该章条目");
+    if (row.id === chapterId) setChapterTitle(newTitle.trim() || row.title);
+    notifyChaptersRefresh();
+  }
+
+  async function sidebarMove(row: ChapterRowView, toVolumeId: string) {
+    if (!project) return;
+    const ok = await applyMoveChapter({
+      root: project.root,
+      join,
+      fromVolumeId: row.volumeId,
+      toVolumeId,
+      chapterId: row.id,
+      title: row.title,
+    });
+    if (!ok) throw new Error("移动失败：源卷没有该章条目");
+    notifyChaptersRefresh();
+  }
+
+  async function sidebarDelete(row: ChapterRowView) {
+    if (!project) return;
+    const r = await applyRemoveChapterFromCatalog({
+      root: project.root,
+      join,
+      volumeId: row.volumeId,
+      chapterId: row.id,
+    });
+    if (!r.ok || !r.removedLine) throw new Error("章节列表里没找到这一章");
+    lastRemovedRef.current = { row, removedLine: r.removedLine };
+    notifyChaptersRefresh();
+  }
+
+  async function sidebarUndoDelete(row: ChapterRowView) {
+    const kept = lastRemovedRef.current;
+    if (!project || !kept || kept.row.id !== row.id) return;
+    await applyRestoreChapterToCatalog({
+      root: project.root,
+      join,
+      volumeId: row.volumeId,
+      chapterId: row.id,
+      removedLine: kept.removedLine,
+    });
+    lastRemovedRef.current = null;
+    notifyChaptersRefresh();
+  }
+
+  function notifyChaptersRefresh() {
+    void refresh();
   }
 
   async function addVolume() {
@@ -657,68 +743,24 @@ export function AppLayout() {
         )}
 
         {project && prog && !loc.pathname.startsWith("/app/beats") && (
-          <div className="chapter-nav">
-            <div className="chapter-nav-head">
-              <span>章目录</span>
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => void addChapter()}
-                title="新建空章并挂入当前卷"
-              >
-                +新建章
-              </button>
-            </div>
-            <div className="muted" style={{ fontSize: 11, padding: "0 8px 4px" }}>
-              {prog.chaptersDone}/{prog.chapterTotal || prog.chapterRows.length}
-            </div>
-            {prog.chapterRows.length > 0 && (
-            <input
-              className="chapter-nav-filter"
-              value={chapterFilter}
-              onChange={(e) => setChapterFilter(e.target.value)}
-              placeholder="过滤章号/标题…"
-              aria-label="过滤章节"
-            />
-            )}
-            <div className="chapter-nav-list" ref={chapterListRef}>
-              {!prog.chapterRows.length && (
-                <p className="muted" style={{ fontSize: 12, padding: 8 }}>
-                  暂无章节。可「+新建章」或到卷章管理从导入章生成目录。
-                </p>
-              )}
-              {prog.chapterRows
-                .filter((r) => {
-                  const q = chapterFilter.trim().toLowerCase();
-                  if (!q) return true;
-                  return (
-                    r.id.toLowerCase().includes(q) ||
-                    r.title.toLowerCase().includes(q) ||
-                    r.volumeId.toLowerCase().includes(q)
-                  );
-                })
-                .map((r) => (
-                <button
-                  type="button"
-                  key={r.id}
-                  className={`chapter-nav-item ${r.id === chapterId ? "on" : ""} ${
-                    r.hasChapter ? "done" : ""
-                  }`}
-                  onClick={() => jumpChapter(r.id, r.title, r.hasChapter, r.volumeId)}
-                  title={`${r.volumeId}${r.hasChapter ? ` · ${r.words} 字` : " · 未写"}${
-                    r.hasBeats ? "" : " · 缺细纲"
-                  }`}
-                >
-                  <span className="chapter-nav-id">{r.id.replace("第", "").replace("章", "")}</span>
-                  <span className="chapter-nav-title">
-                    {!r.hasBeats ? "⚠ " : ""}
-                    {r.title}
-                  </span>
-                  {r.hasChapter ? <span className="chapter-nav-dot" /> : null}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ChapterSidebar
+            rows={prog.chapterRows}
+            volumes={(prog.volumeRows || []).map((v) => ({ id: v.id, title: v.title }))}
+            activeChapterId={chapterId}
+            listRef={chapterListRef}
+            onSelect={(r) => jumpChapter(r.id, r.title, r.hasChapter, r.volumeId)}
+            onRename={sidebarRename}
+            onMove={sidebarMove}
+            onDelete={sidebarDelete}
+            onUndoDelete={sidebarUndoDelete}
+            onAddChapter={() => void addChapter()}
+            // 偏离骨架：0 章卷的「生成细纲」不就地跑 LLM（本卷简介/目录/场次的
+            // 两段式生成依赖细纲页上下文），改为选中该卷并跳「细纲」页。
+            onGenerateVolumeBeats={(vid) => {
+              setVolumeId(vid);
+              nav("/app/beats");
+            }}
+          />
         )}
 
         {jobCount > 0 && (
