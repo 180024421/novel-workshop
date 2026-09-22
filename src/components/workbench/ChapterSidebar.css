@@ -81,6 +81,12 @@
   box-shadow: inset 2px 0 0 var(--gold, #d4a574);
 }
 
+/* QA：F7 键盘可达配套——Tab 焦点必须可见（role=button 行自带 tabIndex） */
+.wsb-item:focus-visible {
+  outline: 2px solid var(--gold, #d4a574);
+  outline-offset: -2px;
+}
+
 .wsb-id {
   min-width: 22px;
   text-align: right;

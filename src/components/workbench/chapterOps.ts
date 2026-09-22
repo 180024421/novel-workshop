@@ -134,10 +134,10 @@ export const CHAPTER_BADGE_META: Record<
   { label: string; color: string; tip: string }
 > = {
   draft: { label: "草稿", color: "rgba(255,255,255,0.35)", tip: "有目录无正文" },
-  generating: { label: "生成中", color: "#d4a574", tip: "AI 正在写本章" },
-  done: { label: "完成", color: "#7cbc8e", tip: "正文已落盘" },
+  generating: { label: "生成中", color: "var(--gold, #d4a574)", tip: "AI 正在写本章" },
+  done: { label: "完成", color: "var(--ok, #7cbc8e)", tip: "正文已落盘" },
   queued: { label: "排队", color: "rgba(255,255,255,0.2)", tip: "在续章队列中" },
-  failed: { label: "失败", color: "#e07a6a", tip: "队列生成失败，点开介入" },
+  failed: { label: "失败", color: "var(--danger, #e07a6a)", tip: "队列生成失败，点开介入" },
 };
 
 /* ---------- 事件化刷新（修「新章要切卷才出现」） ---------- */
