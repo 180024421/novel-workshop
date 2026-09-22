@@ -1,4 +1,4 @@
-import { CRAFT_TABOO_LINES } from "./craftRules";
+import { CRAFT_AI_TABOO_LINES, CRAFT_TABOO_LINES } from "./craftRules";
 
 export type ScanHit = {
   kind: "禁忌词" | "人名疑似漂移" | "细纲缺项" | "工艺病";
@@ -17,6 +17,7 @@ const DEFAULT_TABOO = [
   "心中暗道",
   "仿佛在说",
   ...CRAFT_TABOO_LINES,
+  ...CRAFT_AI_TABOO_LINES,
 ];
 
 export async function loadTabooList(

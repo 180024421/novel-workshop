@@ -1,6 +1,6 @@
 /** 旧书一键补齐工艺红线到 prompts/style.md + taboo.md */
 
-import { CRAFT_STYLE_MD, CRAFT_TABOO_LINES } from "./craftRules";
+import { CRAFT_AI_TABOO_LINES, CRAFT_STYLE_MD, CRAFT_TABOO_LINES } from "./craftRules";
 
 export function mergeCraftStyle(existing: string): string {
   const cur = (existing || "").trim();
@@ -19,6 +19,7 @@ export function mergeCraftTaboo(existing: string): string {
     .filter((l) => l && !l.startsWith("#"));
   const set = new Set(lines);
   for (const w of CRAFT_TABOO_LINES) set.add(w);
+  for (const w of CRAFT_AI_TABOO_LINES) set.add(w);
   // keep some classic defaults
   for (const w of ["总之", "总而言之", "不禁", "目光如炬", "嘴角微微上扬", "杀气腾腾", "心中暗道"]) {
     set.add(w);
