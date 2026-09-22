@@ -1,0 +1,121 @@
+{
+  "skill": "qa",
+  "generated_at": "2026-09-22T15:18:39.628Z",
+  "project_name": "大帅墨枢",
+  "target": "cf1d8a1 日更流改版四 Flow 实现（写作工作台/章目录侧栏/续章队列/预检合并）",
+  "review_mode": "auto",
+  "deviations": [
+    {
+      "id": "qa-1",
+      "dimension": "interaction-states",
+      "severity": "minor",
+      "design_source": "flow-web.json Flow B：章行 role=button 键盘可达（check F7 建议）",
+      "implementation": "ChapterSidebar 行有 tabIndex/onKeyDown，但 CSS 无 :focus-visible——Tab 焦点不可见",
+      "delta": "键盘可达 OK / 焦点可视缺失（维度 6.3 未过）",
+      "suggestion": "补 .wsb-item:focus-visible outline（QA 中已修）",
+      "location": "src/components/workbench/ChapterSidebar.css",
+      "relates_to_check_finding": "F7"
+    },
+    {
+      "id": "qa-2",
+      "dimension": "color",
+      "severity": "minor",
+      "design_source": "flow-web.json rules：颜色走 CSS 变量 + token（CSS 侧已全用 var(--x,#hex) 回退式）",
+      "implementation": "chapterOps.ts CHAPTER_BADGE_META 三枚状态色为裸 hex，绕开变量层",
+      "delta": "#d4a574/#7cbc8e/#e07a6a → 应为 var(--gold/--ok/--danger)",
+      "suggestion": "改为 var(--gold, #d4a574) 回退式（QA 中已修，内联 style 支持 CSS 变量）",
+      "location": "src/components/workbench/chapterOps.ts:137-140",
+      "relates_to_check_finding": null
+    }
+  ],
+  "check_finding_status": [
+    {
+      "finding": "F1",
+      "severity": "blocker",
+      "status": "resolved"
+    },
+    {
+      "finding": "F2",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "finding": "F3",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "finding": "F4",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "finding": "F5",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "finding": "F6",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "finding": "F7",
+      "severity": "major",
+      "status": "resolved",
+      "note": "实现层焦点态经 QA 补齐"
+    },
+    {
+      "finding": "F8",
+      "severity": "minor",
+      "status": "resolved"
+    },
+    {
+      "finding": "F9",
+      "severity": "minor",
+      "status": "resolved"
+    },
+    {
+      "finding": "F10",
+      "severity": "minor",
+      "status": "resolved"
+    },
+    {
+      "finding": "F11",
+      "severity": "minor",
+      "status": "resolved"
+    },
+    {
+      "finding": "F12",
+      "severity": "minor",
+      "status": "resolved"
+    },
+    {
+      "finding": "F13",
+      "severity": "minor",
+      "status": "documented-deviation(F13 保留)"
+    },
+    {
+      "finding": "F14",
+      "severity": "minor",
+      "status": "resolved"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "blocker": 0,
+    "major": 0,
+    "minor": 2,
+    "pass_dimensions": [
+      "spacing",
+      "typography",
+      "radius-shadow",
+      "assets",
+      "state-coverage",
+      "responsive",
+      "accessibility"
+    ],
+    "check_findings_resolved": 13,
+    "check_findings_unresolved": 1
+  }
+}

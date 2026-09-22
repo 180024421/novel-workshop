@@ -8,7 +8,7 @@
   使用方式（详见 chain-protocol §九）：
     1. 读取本模板原文
     2. 扫描项目目录 `spark-output/context/*.json`，构造 STATE 对象
-    3. 将本文件中唯一占位符 `/*__SPARK_STATE_INJECT__*/"{\"project\":\"大帅墨枢\",\"generated_at\":\"2026-09-22T06:44:38.000Z\",\"contexts\":{\"check\":{\"done\":true,\"summary\":\"走查 14 findings（1B/6M/7m）\",\"fields\":{}},\"flow-web\":{\"done\":true,\"summary\":\"4 flows 已接线主工程，antd v6\",\"fields\":{}},\"prd\":{\"done\":true,\"summary\":\"8 段 PRD：≤2击/0跳页/0阻断/0丢字\",\"fields\":{}}}}"` 替换为 STATE JSON
+    3. 将本文件中唯一占位符 `/*__SPARK_STATE_INJECT__*/"{\"project\":\"大帅墨枢\",\"generated_at\":\"2026-09-22T15:18:39.628Z\",\"contexts\":{\"check\":{\"done\":true,\"summary\":\"14 findings：1B/6M/7m 已修13\",\"fields\":{}},\"flow-web\":{\"done\":true,\"summary\":\"四Flow接入主工程 antd v6\",\"fields\":{}},\"prd\":{\"done\":true,\"summary\":\"8段PRD：0阻断弹窗/0丢字铁律\",\"fields\":{}},\"qa\":{\"done\":true,\"summary\":\"还原度验收：0B/0M/2m 均已修\",\"fields\":{}}}}"` 替换为 STATE JSON
     4. 写入 `spark-output/dashboard.html`（覆盖式）
 
   STATE 形态：
