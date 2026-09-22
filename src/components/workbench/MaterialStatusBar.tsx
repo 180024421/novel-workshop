@@ -57,12 +57,15 @@ export function MaterialStatusBar({
             {lamp.label}
           </Tag>
         ) : (
-          /* STATE: missing — 黄标 + 就地补按钮 */
+          /* STATE: missing — 黄标 + 就地补按钮（F10：整条 Tag 可点，热区=暗示） */
           <Tooltip key={lamp.key} title={`缺${lamp.label}：点击就地生成，无需切页`}>
             <Tag
               color="warning"
               icon={<ExclamationCircleFilled />}
               style={{ marginInlineEnd: 0, cursor: onRepair ? "pointer" : "default" }}
+              onClick={() => {
+                if (onRepair && !(repairingKey && repairingKey !== lamp.key)) onRepair(lamp);
+              }}
             >
               {lamp.label}
               <Button
@@ -71,7 +74,10 @@ export function MaterialStatusBar({
                 style={{ paddingInline: 4, height: "auto" }}
                 loading={repairingKey === lamp.key}
                 disabled={!!repairingKey && repairingKey !== lamp.key}
-                onClick={() => onRepair?.(lamp)}
+                onClick={(e) => {
+                  e.stopPropagation(); // Tag 本体已有 onClick，避免双触发
+                  onRepair?.(lamp);
+                }}
               >
                 就地补
               </Button>

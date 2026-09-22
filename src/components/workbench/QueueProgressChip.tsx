@@ -4,8 +4,8 @@
  * SCREEN 2 of 4（常驻件）: Progress Chip（进度胶囊）
  * ------------------------------------------------
  * ENTRY:  队列启动后常驻工作台顶栏 + 侧栏角标
- * EXIT:   点 Chip → 展开 QueuePanel（Screen 2/3/4 详情）
- * BRANCH: Popover 内 暂停/继续/停止，挂机时可快速干预
+ * EXIT:   点 Chip → Popover 快速干预（详情面板常驻右栏 Agent 下方）
+ * BRANCH: Popover 内 继续/停止，挂机时可快速干预
  * ================================================
  */
 import { Badge, Button, Popover, Progress, Tag, theme } from "antd";
@@ -15,11 +15,9 @@ import type { ChapterQueueState, QueueAction } from "./types";
 export type QueueProgressChipProps = {
   state: ChapterQueueState;
   onAction: (a: QueueAction) => void;
-  /** 点击 Chip 主体：滚到/展开队列面板 */
-  onOpen?: () => void;
 };
 
-export function QueueProgressChip({ state, onAction, onOpen }: QueueProgressChipProps) {
+export function QueueProgressChip({ state, onAction }: QueueProgressChipProps) {
   const { token } = theme.useToken();
   const label = queueProgressLabel(state);
   if (!label) return null; // STATE: idle — 队列完全静默不占位
@@ -37,18 +35,12 @@ export function QueueProgressChip({ state, onAction, onOpen }: QueueProgressChip
           <div style={{ fontSize: 12, margin: "2px 0 8px" }}>
             {done}/{total} 章 · {state.currentChapter ? `正在写第${state.currentChapter}章` : "等待开写"}
           </div>
-          <Button size="small" type="text" onClick={onOpen}>
-            查看详情
-          </Button>
-          {state.running ? (
-            <Button size="small" onClick={() => onAction({ type: "pause" })}>
-              暂停
-            </Button>
-          ) : state.finished ? null : (
+          <div style={{ fontSize: 11, marginBottom: 6, opacity: 0.65 }}>详情面板在右栏「Agent」下方</div>
+          {!state.running && !state.finished ? (
             <Button size="small" type="primary" ghost onClick={() => onAction({ type: "resume" })}>
               继续
             </Button>
-          )}
+          ) : null}
           {!state.finished && (
             <Button size="small" danger type="text" onClick={() => onAction({ type: "stop" })}>
               停止
@@ -58,7 +50,7 @@ export function QueueProgressChip({ state, onAction, onOpen }: QueueProgressChip
       }
     >
       <Badge dot={state.running} color={token.colorPrimary}>
-        <Tag className="wq-chip" color={color} onClick={onOpen} style={{ cursor: "pointer" }}>
+        <Tag className="wq-chip" color={color} style={{ cursor: "pointer" }}>
           {label}
         </Tag>
       </Badge>

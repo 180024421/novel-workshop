@@ -94,8 +94,15 @@ export function WorkbenchComposer({
       {messagesEmpty && !streaming && suggestions.length > 0 && (
         <Flex gap={6} wrap>
           {suggestions.map((s) => (
-            <Button key={s} size="small" onClick={() => onSend(s)}>
-              {s}
+            /* F12：chip 只显示短标签，全文走 title；点击仍发送完整 prompt */
+            <Button
+              key={s}
+              size="small"
+              title={s}
+              style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              onClick={() => onSend(s)}
+            >
+              {s.length > 18 ? `${s.slice(0, 18)}…` : s}
             </Button>
           ))}
         </Flex>

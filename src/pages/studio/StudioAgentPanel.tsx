@@ -67,7 +67,6 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
     chapterId,
     chapterTitle,
     chapterBeats,
-    currentVolume,
     doc,
     chatEndRef,
     clearChat,
@@ -180,110 +179,6 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                     : `聊清楚后点下方「${modeGenerateButtonLabel(mode)}」；也可划选局部让 Agent 改`}
                 </li>
               </ul>
-              <div className="studio-quick">
-                {mode === "idea" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void sendChat("帮我梳理卖点、世界观规则、主角与核心冲突（不要写章节正文）")}
-                    >
-                      梳理卖点与冲突
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void sendChat("主要人物各是什么身份与声口？人物之间有哪些张力？（仍停留在设定层）")}
-                    >
-                      聊人物张力
-                    </button>
-                  </>
-                )}
-                {mode === "outline" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          "帮我写全书总纲：卖点、梗概、世界观、主要人物、主线冲突、分卷主题（禁止输出第N章列表）"
-                        )
-                      }
-                    >
-                      梳理全书总纲
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void sendChat("各卷主题弧线怎么排？每卷一句话即可，不要拆章。")}
-                    >
-                      聊分卷主题
-                    </button>
-                  </>
-                )}
-                {mode === "beats" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          `「${volumeId}」按网文一卷来排，目标约 ${chaptersPerVolume} 章：先聊本卷简介、开卷钩子、中段升级、卷末高潮（先别写正文）`
-                        )
-                      }
-                    >
-                      聊本卷骨架
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          `请按约 ${chaptersPerVolume} 章规划本卷目录（要很多章，不要只给几章）。已有：${
-                            (currentVolume?.chapters || []).map((c) => c.id).join("、") || "（尚无）"
-                          }`
-                        )
-                      }
-                    >
-                      聊章目录（多章）
-                    </button>
-                  </>
-                )}
-                {mode === "chapter" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          `先聊「${chapterId} ${chapterTitle}」这一章要达成什么情绪与冲突，不要直接写正文`
-                        )
-                      }
-                    >
-                      聊本章目标
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void sendChat("这一章对白想偏什么样的声口？")}
-                    >
-                      聊声口
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          "请对照本章细纲做连贯检查：场次是否落全、情绪弧是否断裂、有无跑偏细纲；列出问题并给改写建议（先别整章重写）。"
-                        )
-                      }
-                    >
-                      对照细纲检查
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void sendChat(
-                          "请按人物声口卡，挑一处对白改得更贴身份与性格；说明改了谁、为何更贴，并给出改写后的一小段。"
-                        )
-                      }
-                    >
-                      按人物声口改一处
-                    </button>
-                  </>
-                )}
-              </div>
             </div>
           )}
           {messages.map((m, i) => (
@@ -308,7 +203,7 @@ export function StudioAgentPanel(p: StudioAgentPanelProps) {
                     className="linkish studio-msg-apply"
                     onClick={() => void applyToEditor(m.content, !doc.trim())}
                   >
-                    {doc.trim() ? "写入编辑器" : "写入编辑器"}
+                    写入编辑器
                   </button>
                 </div>
               )}

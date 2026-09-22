@@ -42,9 +42,9 @@ export function QueuePanel({ state, onAction, onJumpChapter, onDismiss }: QueueP
           <span className="wq-panel-count">
             {done}/{total} 章
           </span>
-          {state.running && (
-            <Button size="small" onClick={() => onAction({ type: "pause" })}>
-              暂停
+          {(state.running || intervention) && (
+            <Button size="small" danger onClick={() => onAction({ type: "stop" })}>
+              停止
             </Button>
           )}
           {(intervention || state.finished) && (
@@ -62,7 +62,12 @@ export function QueuePanel({ state, onAction, onJumpChapter, onDismiss }: QueueP
       />
 
       {state.running && state.currentChapter != null && (
-        <div className="wq-current">正在写第{state.currentChapter}章…（挂机可读别的，写完自动进下一章）</div>
+        <div className="wq-current">
+          正在写第{state.currentChapter}章…（挂机可读别的，写完自动进下一章）
+          {state.skipped.length > 0 && (
+            <span className="muted"> · 已自动跳过 {state.skipped.length} 章</span>
+          )}
+        </div>
       )}
 
       {state.quotaBlocked && (
@@ -98,19 +103,18 @@ export function QueuePanel({ state, onAction, onJumpChapter, onDismiss }: QueueP
               <span className="wq-fail-reason" title={f.reason}>
                 {f.reason}
               </span>
-              <Button size="small" type="link" onClick={() => onAction({ type: "retry", chapter: f.chapter })}>
-                重试
-              </Button>
-              <Button size="small" type="link" onClick={() => onAction({ type: "skip", chapter: f.chapter })}>
-                跳过
-              </Button>
+              {intervention && (
+                <>
+                  <Button size="small" type="link" onClick={() => onAction({ type: "retry", chapter: f.chapter })}>
+                    重试
+                  </Button>
+                  <Button size="small" type="link" onClick={() => onAction({ type: "skip", chapter: f.chapter })}>
+                    跳过
+                  </Button>
+                </>
+              )}
             </div>
           ))}
-          {intervention && (
-            <Button size="small" danger onClick={() => onAction({ type: "stop" })}>
-              停止队列（保留已写章节）
-            </Button>
-          )}
         </div>
       )}
 

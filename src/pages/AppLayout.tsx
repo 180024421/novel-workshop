@@ -26,7 +26,8 @@ import {
   CHAPTERS_DIRTY_EVENT,
 } from "../components/workbench/chapterOps";
 import { ChapterSidebar } from "../components/workbench/ChapterSidebar";
-import type { ChapterRowView } from "../components/workbench/types";
+import { QUEUE_STATE_EVENT } from "../components/workbench/queueLogic";
+import type { ChapterItemState, ChapterRowView } from "../components/workbench/types";
 import { promptText } from "../lib/confirm";
 import { getTodayUsage, goalProgress, type DayUsage } from "../lib/usageLedger";
 import {
@@ -111,6 +112,11 @@ export function AppLayout() {
   const [hasCraft, setHasCraft] = useState(false);
   const [serialWarn, setSerialWarn] = useState(false);
   const chapterListRef = useRef<HTMLDivElement>(null);
+  // F5：队列运行态 → 侧栏角标覆盖（null = 队列静默）
+  const [queueOverrides, setQueueOverrides] = useState<Record<
+    string,
+    Extract<ChapterItemState, "generating" | "queued" | "failed">
+  > | null>(null);
   const [toolsOpen, setToolsOpen] = useState(() => {
     try {
       return localStorage.getItem("moshu.toolsNavSeen") !== "1";
@@ -227,6 +233,16 @@ export function AppLayout() {
       window.removeEventListener(CHAPTERS_DIRTY_EVENT, onDirty);
     };
   }, [refresh]);
+
+  // F5（Flow C 跨栏同步）：队列运行态桥接事件 → 侧栏 generating/queued/failed 角标
+  useEffect(() => {
+    const onQueueState = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setQueueOverrides(detail && Object.keys(detail).length ? detail : null);
+    };
+    window.addEventListener(QUEUE_STATE_EVENT, onQueueState);
+    return () => window.removeEventListener(QUEUE_STATE_EVENT, onQueueState);
+  }, []);
 
   // 定时本地 zip 备份（小时级；0=关）
   useEffect(() => {
@@ -747,6 +763,7 @@ export function AppLayout() {
             rows={prog.chapterRows}
             volumes={(prog.volumeRows || []).map((v) => ({ id: v.id, title: v.title }))}
             activeChapterId={chapterId}
+            stateOverrides={queueOverrides ?? undefined}
             listRef={chapterListRef}
             onSelect={(r) => jumpChapter(r.id, r.title, r.hasChapter, r.volumeId)}
             onRename={sidebarRename}

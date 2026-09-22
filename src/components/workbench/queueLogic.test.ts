@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_QUEUE_STATE,
   QuotaBlockedError,
+  queueBadgeOverrides,
   queueProgress,
   queueProgressLabel,
   runQueue,
@@ -186,5 +187,31 @@ describe("runQueue", () => {
     expect(s.finished).toBe(true);
     expect(s.completed.map((c) => c.chapter)).toEqual([10, 12]);
     expect(queueProgressLabel(s)).toBe("3/3 全部完成");
+  });
+});
+
+describe("queueBadgeOverrides（F5 侧栏角标桥接）", () => {
+  it("运行态：当前章 generating、未来章 queued、已完成/跳过不再点亮的", () => {
+    let s = start();
+    s = transition(s, { type: "chapter-start", chapter: 10 });
+    s = transition(s, { type: "chapter-done", chapter: 10, words: 2500 });
+    s = transition(s, { type: "chapter-start", chapter: 11 });
+    const o = queueBadgeOverrides(s);
+    expect(o["第10章"]).toBeUndefined();
+    expect(o["第11章"]).toBe("generating");
+    expect(o["第12章"]).toBe("queued");
+  });
+
+  it("失败章标 failed；结束后（finished）不再铺 queued", () => {
+    let s = start();
+    s = transition(s, { type: "chapter-failed", chapter: 10, reason: "x" });
+    expect(queueBadgeOverrides(s)["第10章"]).toBe("failed");
+    s = transition(s, { type: "skip", chapter: 10 });
+    s = transition(s, { type: "chapter-start", chapter: 11 });
+    s = transition(s, { type: "chapter-done", chapter: 11, words: 2500 });
+    s = transition(s, { type: "chapter-start", chapter: 12 });
+    s = transition(s, { type: "chapter-done", chapter: 12, words: 2500 });
+    expect(s.finished).toBe(true);
+    expect(queueBadgeOverrides(s)).toEqual({});
   });
 });

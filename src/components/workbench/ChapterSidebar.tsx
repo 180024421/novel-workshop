@@ -13,7 +13,7 @@
  * - 新章生成完 ≤1s 出现：父层监听 CHAPTERS_DIRTY_EVENT 重算 rows（修旧版只随 volumeId 重算的问题）
  * - 破坏性操作（移除目录）才有阻断确认；重命名/移动不弹窗
  */
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, useState, type CSSProperties, type Ref } from "react";
 import { App as AntdApp, Button, Dropdown, Input } from "antd";
 import type { MenuProps } from "antd";
 import { DeleteOutlined, EditOutlined, FolderOutlined, MoreOutlined } from "@ant-design/icons";
@@ -246,12 +246,37 @@ export function ChapterSidebar(p: ChapterSidebarProps) {
                 const busy = override === "generating";
                 const badge = badgeOf(r);
                 const on = r.id === p.activeChapterId;
+                const dotState = override || (r.hasChapter ? "done" : "draft");
+                // F14：形状 + 颜色双通道（色觉异常也可分）：实点/细环/环心点/菱形
+                const dotStyle: CSSProperties =
+                  dotState === "failed"
+                    ? { background: badge.color, borderRadius: 1.5, transform: "rotate(45deg)" }
+                    : dotState === "queued"
+                      ? {
+                          background: `radial-gradient(circle, ${badge.color} 0 28%, transparent 34%)`,
+                          boxShadow: `inset 0 0 0 1.5px ${badge.color}`,
+                        }
+                      : dotState === "draft"
+                        ? { background: "transparent", boxShadow: `inset 0 0 0 1.5px ${badge.color}` }
+                        : { background: badge.color };
                 return (
                   <div
                     key={r.id}
                     className={`wsb-item${on ? " on" : ""}${r.hasChapter ? " done" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={on ? "true" : undefined}
                     onClick={() => {
                       if (renamingId !== r.id) p.onSelect(r);
+                    }}
+                    onKeyDown={(e) => {
+                      // F7：Enter/Space 选章（重构前行是 <button>，键盘可达不回退）
+                      if (renamingId === r.id) return;
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        p.onSelect(r);
+                      }
                     }}
                     title={`${g.volumeId} · ${badge.tip}${r.words ? ` · ${r.words} 字` : ""}${
                       r.hasBeats ? "" : " · 缺细纲"
@@ -275,10 +300,7 @@ export function ChapterSidebar(p: ChapterSidebarProps) {
                       {override === "generating" ? (
                         <LoadingOutlined style={{ color: badge.color }} spin />
                       ) : (
-                        <span
-                          className={`wsb-dot wsb-dot-${override || (r.hasChapter ? "done" : "draft")}`}
-                          style={{ background: badge.color }}
-                        />
+                        <span className={`wsb-dot wsb-dot-${dotState}`} style={dotStyle} />
                       )}
                     </span>
                     {renamingId !== r.id && (

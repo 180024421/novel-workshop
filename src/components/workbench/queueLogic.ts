@@ -70,6 +70,34 @@ export function isQueueVisible(s: ChapterQueueState): boolean {
   return s.running || s.pausedForReview || s.quotaBlocked || s.finished;
 }
 
+/** 队列态桥接事件（useStudioGenerate 派发 → AppLayout 监听传 ChapterSidebar.stateOverrides） */
+export const QUEUE_STATE_EVENT = "moshu:queue-state";
+
+/**
+ * F5：把队列运行态映射成侧栏角标覆盖。
+ * 当前章 = generating；失败未处理 = failed；
+ * 起点..目标里尚未落账（完成/跳过/失败/进行中）的章 = queued。
+ * 队列静默时返回 {}。
+ */
+export function queueBadgeOverrides(
+  s: ChapterQueueState
+): Record<string, "generating" | "queued" | "failed"> {
+  const out: Record<string, "generating" | "queued" | "failed"> = {};
+  const done = new Set<number>([
+    ...s.completed.map((c) => c.chapter),
+    ...s.skipped,
+  ]);
+  if (s.currentChapter != null) out[`第${s.currentChapter}章`] = "generating";
+  for (const f of s.failures) out[`第${f.chapter}章`] = "failed";
+  if (s.running || s.pausedForReview || s.quotaBlocked) {
+    for (let n = s.startChapter; n <= s.targetChapter; n++) {
+      const key = `第${n}章`;
+      if (!done.has(n) && !(key in out)) out[key] = "queued";
+    }
+  }
+  return out;
+}
+
 export function transition(s: ChapterQueueState, ev: QueueEvent): ChapterQueueState {
   switch (ev.type) {
     case "start":

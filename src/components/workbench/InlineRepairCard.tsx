@@ -3,7 +3,8 @@
    SCREEN 2 of 4: 缺料就地补态（内联补料卡）
    ------------------------------------------------
    ENTRY:  Screen 1 点击 missing 灯「就地补」
-   EXIT:   「就地生成」流式完成 → 灯转绿 → 自动继续原生成（回 Screen 3）
+   EXIT:   流式完成 → 灯转绿 → done 态「继续写正文」一键接续
+           （F4：花费动作仍由用户点，不静默自动生成）
    BRANCH: 「稍后」→ 收起卡片，回到原页面；失败 → 卡片转错误态可重试
    ================================================ */
 import { Alert, Button, Flex, Typography } from "antd";
@@ -18,6 +19,8 @@ export type InlineRepairCardProps = {
   error?: string | null;
   /** 补料完成后展示的一句话摘要（字数等） */
   resultHint?: string | null;
+  /** 补齐后的一键接续（父层按 mode 决定是否给；不给则 done 态只收起） */
+  onResume?: () => void;
   onGenerate: (lamp: MaterialLamp) => void;
   onDismiss: () => void;
 };
@@ -31,18 +34,19 @@ function repairLabel(action?: MaterialLamp["repairAction"]): string {
 
 /**
  * 内联补料卡：嵌在右栏 Composer 上方，替代「请先去细纲补本章」跳页。
- * 补齐后由调用方（Phase C 接线）自动继续用户原本点击的生成动作。
+ * 补齐后灯条转绿；正文页由父层传 onResume 提供「继续写正文」一键接续（不静默烧钱）。
  */
 export function InlineRepairCard({
   lamp,
   generating,
   error,
   resultHint,
+  onResume,
   onGenerate,
   onDismiss,
 }: InlineRepairCardProps) {
   if (resultHint && !error && !generating) {
-    /* STATE: done — 已补齐（灯条转绿由父级重算），短暂停留后收起 */
+    /* STATE: done — 已补齐（灯条转绿由父级重算），一键接续或收起 */
     return (
       <Alert
         type="success"
@@ -51,9 +55,16 @@ export function InlineRepairCard({
         description={resultHint}
         style={{ marginBottom: 8 }}
         action={
-          <Button size="small" type="text" onClick={onDismiss}>
-            收起
-          </Button>
+          <Flex gap={6}>
+            {onResume && (
+              <Button size="small" type="primary" onClick={onResume}>
+                {lamp.key === "beats" ? "继续写正文" : "继续生成"}
+              </Button>
+            )}
+            <Button size="small" type="text" onClick={onDismiss}>
+              收起
+            </Button>
+          </Flex>
         }
       />
     );
@@ -74,8 +85,8 @@ export function InlineRepairCard({
           <>
             <Typography.Paragraph style={{ marginBottom: 8 }}>
               {lamp.key === "beats"
-                ? "正文将按补出的细纲展开；生成完自动继续写正文，无需切页。"
-                : `将从上游已有内容直接生成${lamp.label}，生成完自动继续。`}
+                ? "正文将按补出的细纲展开；补完后点「继续写正文」即可，无需切页。"
+                : `将从上游已有内容直接生成${lamp.label}，补完灯条转绿后即可继续。`}
             </Typography.Paragraph>
             <Flex gap={8}>
               <Button

@@ -11,14 +11,15 @@
 import { useState } from "react";
 import { Button, Flex, InputNumber, Tooltip, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
+import { cny } from "./preflight";
 
 export type QueueLaunchBarProps = {
   /** 默认写到第几章（serialPlan buffer 推算，父层给） */
   defaultTarget: number;
   /** 下一章起点 = 当前最大完成章号 + 1 */
   startChapter: number;
-  /** 预估费用一行显示（Flow D 预检产物） */
-  estimatedCost?: string;
+  /** 单章预估（CNY）；F6：按「共 N 章」实时折算，避免只报 1 章的钱 */
+  costPerChapter?: number;
   remainingQuota?: string;
   /** 有值 → 启动按钮禁用并提示原因（如「今日额度仅剩 ¥3，不够 1 章」） */
   blockReason?: string;
@@ -29,6 +30,10 @@ export type QueueLaunchBarProps = {
 export function QueueLaunchBar(p: QueueLaunchBarProps) {
   const [target, setTarget] = useState<number>(Math.max(p.defaultTarget, p.startChapter));
   const count = Math.max(0, target - p.startChapter + 1);
+  const totalEstimate =
+    p.costPerChapter != null && Number.isFinite(p.costPerChapter)
+      ? cny(p.costPerChapter * count)
+      : null;
 
   return (
     /* STATE: default — 步进器 + 费用/额度一行，启动可用 */
@@ -62,10 +67,10 @@ export function QueueLaunchBar(p: QueueLaunchBarProps) {
           </span>
         </Tooltip>
       </Flex>
-      {(p.estimatedCost || p.remainingQuota) && (
+      {(totalEstimate || p.remainingQuota) && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {p.estimatedCost ? `预估 ${p.estimatedCost}` : ""}
-          {p.estimatedCost && p.remainingQuota ? " · " : ""}
+          {totalEstimate ? `${count} 章合计预估 ${totalEstimate}` : ""}
+          {totalEstimate && p.remainingQuota ? " · " : ""}
           {p.remainingQuota ? `今日剩余额度 ${p.remainingQuota}` : ""}
         </Typography.Text>
       )}

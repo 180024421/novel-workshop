@@ -311,19 +311,21 @@ export function StudioPage() {
       ? "当前有生成任务在跑"
       : undefined;
 
-  function jumpQueueChapter(n: number) {
+  async function jumpQueueChapter(n: number) {
     const id = `第${n}章`;
     const hit = allChapters.find((c) => c.id === id);
+    // F1（丢字 P0）：切章前先 flush 当前章未保存编辑，与 AppLayout jumpChapter 同保证
+    try {
+      await saveNow();
+    } catch {
+      /* flush 失败不拦跳转，autosave 仍会重试 */
+    }
     selectChapter(id, hit?.title || id);
   }
 
   const workbenchNode = (
     <>
-      <QueueProgressChip
-        state={gen.queue}
-        onAction={gen.queueAction}
-        onOpen={() => setHint("队列面板在右栏「Agent」下方")}
-      />
+      <QueueProgressChip state={gen.queue} onAction={gen.queueAction} />
       <MaterialStatusBar lamps={lamps} repairingKey={gen.repairing} onRepair={gen.doRepair} />
       {gen.repairTarget && (
         <InlineRepairCard
@@ -333,6 +335,8 @@ export function StudioPage() {
           resultHint={gen.repairDoneHint}
           onGenerate={(lamp) => void gen.doRepair(lamp)}
           onDismiss={gen.dismissRepair}
+          /* F4：补完细纲一键续写（正文页），不承诺静默自动生成——花费动作仍由用户点 */
+          onResume={mode === "chapter" ? () => void gen.generateFromChat(true, "full") : undefined}
         />
       )}
       {mode === "chapter" &&
@@ -340,14 +344,14 @@ export function StudioPage() {
           <QueuePanel
             state={gen.queue}
             onAction={gen.queueAction}
-            onJumpChapter={jumpQueueChapter}
+            onJumpChapter={(n) => void jumpQueueChapter(n)}
             onDismiss={gen.resetQueue}
           />
         ) : (
           <QueueLaunchBar
             defaultTarget={queueStart + 3}
             startChapter={queueStart}
-            estimatedCost={cny(gen.estimatedCostCny)}
+            costPerChapter={gen.estimatedCostCny}
             remainingQuota={cny(gen.remainingQuotaCny)}
             blockReason={workbenchBlocked}
             onStart={(target) => gen.startQueue(queueStart, target)}

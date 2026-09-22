@@ -33,7 +33,9 @@ import {
 } from "../../lib/volumes";
 import {
   EMPTY_QUEUE_STATE,
+  QUEUE_STATE_EVENT,
   QuotaBlockedError,
+  queueBadgeOverrides,
   runQueue,
   transition,
   type GateDecision,
@@ -640,6 +642,10 @@ export function useStudioGenerate({
     const next = transition(queueRef.current, ev);
     queueRef.current = next;
     setQueue(next);
+    // F5：桥接给 AppLayout 侧栏角标（stateOverrides），队列态跨栏同步
+    window.dispatchEvent(
+      new CustomEvent(QUEUE_STATE_EVENT, { detail: queueBadgeOverrides(next) })
+    );
   }
 
   function resolveGate(decision: GateDecision) {
@@ -673,7 +679,9 @@ export function useStudioGenerate({
         gateResolverRef.current = res;
       });
     }
-    void chapter;
+    // F2：自动跳过也要落账（skipped +1、清掉 failures 里的死行），
+    // 否则完成汇总双计、运行态面板挂着不可操作的「重试」行
+    queueEvent({ type: "skip", chapter });
     return Promise.resolve("skip");
   }
 
@@ -763,11 +771,7 @@ export function useStudioGenerate({
   }
 
   function queueAction(a: QueueAction) {
-    if (a.type === "pause") {
-      // 暂停边界语义：中断在途章（半章留在中间态不落盘），当前章不算失败
-      queueAbortRef.current?.abort();
-      queueAbortRef.current = null;
-    }
+    // F3：UI 不再提供「暂停」（其瞬态不可见、无恢复通道）；停止 = 进汇总，见 QueuePanel
     queueEvent(a);
     if (a.type === "retry") resolveGate("retry");
     else if (a.type === "skip") resolveGate("skip");
@@ -780,8 +784,16 @@ export function useStudioGenerate({
   }
 
   function resetQueue() {
+    // F3：先释放 parked gate / 中断在途章，再清状态——否则旧 runQueue 循环
+    // 仍挂在 gate 上，下次 resume 会被僵尸循环唤醒
+    resolveGate("stop");
+    queueAbortRef.current?.abort();
+    queueAbortRef.current = null;
     queueRef.current = EMPTY_QUEUE_STATE;
     setQueue(EMPTY_QUEUE_STATE);
+    window.dispatchEvent(
+      new CustomEvent(QUEUE_STATE_EVENT, { detail: queueBadgeOverrides(EMPTY_QUEUE_STATE) })
+    );
   }
 
   /* ============================================================
