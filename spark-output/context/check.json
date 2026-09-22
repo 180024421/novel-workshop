@@ -1,0 +1,113 @@
+{
+  "skill": "check",
+  "generated_at": "2026-09-22T14:44:38.000Z",
+  "project_name": "大帅墨枢",
+  "target": "Phase C 集成后的 4 个 flow：写作主循环工作台 / 章目录侧栏 / 自动续章队列 / 确认弹窗合并（13 组件 + 4 宿主接线文件）",
+  "mode": "A（自动走查；无 brief/stories/journey，类别 10 以 PRD spark-output/prd/ux-fluidity.md 四目标为基线）",
+  "findings": [
+    {
+      "category": "flow-continuity",
+      "severity": "blocker",
+      "description": "队列完成汇总点「第N章」跳转（jumpQueueChapter→selectChapter）未先 flush 自动保存，与 AppLayout jumpChapter 的 save-hotkey 路径不一致，当前章 <700ms 窗口内的未保存编辑会被新章稿件覆盖；PRD 明示任何丢字回归为不可豁免 P0。",
+      "suggestion": "切章前先 dispatch moshu:hotkey {action:'save'}（或 await saveNow()）再 selectChapter，与 AppLayout 路径对齐。",
+      "location": "src/pages/StudioPage.tsx:314-318"
+    },
+    {
+      "category": "flow-continuity",
+      "severity": "major",
+      "description": "运行态下 QueuePanel 失败行的「重试」按钮不生效且会抹掉失败记录：gate 已自动 skip 进入下一章，点重试只把该章从 failures 移除并置 running，循环不会回头，章被静默漏掉且汇总不再显示。",
+      "suggestion": "非介入态隐藏/禁用「重试」，或将 retry 改为把章号重新入队（runQueue 支持 pending 列表）。",
+      "location": "src/components/workbench/QueuePanel.tsx:101 + src/pages/studio/useStudioGenerate.ts queueAction/queueGate"
+    },
+    {
+      "category": "flow-continuity",
+      "severity": "major",
+      "description": "队列「暂停」= 无痕消失：pause 后 running:false 且 pausedForReview:false → isQueueVisible=false、chip label=null，面板与胶囊同帧消失，无终点态、无进度回看、无恢复通道；且若循环正停在 gate 等待介入，abort 无法打断 await gate，留下僵尸 runQueue，下次 resume 的 resolveGate 可能唤醒旧循环与新队列互踩。",
+      "suggestion": "pause 走 finished:true 进部分汇总（或新增可见 paused 态+恢复按钮）；queueAction('pause') 先 resolveGate('stop') 再 abort。",
+      "location": "src/pages/studio/useStudioGenerate.ts:765-780 + src/components/workbench/queueLogic.ts:127"
+    },
+    {
+      "category": "copy",
+      "severity": "major",
+      "description": "补料卡文案「生成完自动继续写正文，无需切页」与文件头 EXIT 承诺未兑现：doRepair 补齐后不自动续原生成动作；PRD S2 验收明确要求「补齐后自动继续生成正文」。",
+      "suggestion": "doRepair 成功回调接续触发原生成（记录 pendingGenerate）；短期先改文案为「补好后点生成即可，无需切页」。",
+      "location": "src/components/workbench/InlineRepairCard.tsx:77 + useStudioGenerate.ts doRepair"
+    },
+    {
+      "category": "brief-consistency",
+      "severity": "major",
+      "description": "侧栏队列态角标 stateOverrides 未接线：queue 状态只存在于 StudioPage 的 gen.queue，AppLayout 挂载 ChapterSidebar 时未传，挂机期间侧栏无 generating/queued 角标，Flow C「侧栏与编辑器同步切换」验收缺口（flow-web.json 已记 deviation）。",
+      "suggestion": "queue 状态上提 AppContext，或经事件桥（仿 CHAPTERS_DIRTY_EVENT）广播给 AppLayout 传入 stateOverrides。",
+      "location": "src/components/workbench/ChapterSidebar.tsx stateOverrides / src/pages/AppLayout.tsx 挂载点"
+    },
+    {
+      "category": "copy",
+      "severity": "major",
+      "description": "队列启动条「预估 ¥X」使用单章 chat 生成预估 estimatedCostCny，未乘队列章数，写 N 章显示约 1 章费用，系统性低估挂机成本，与 Flow D 费用透明目标相悖。",
+      "suggestion": "按 (target-start+1)×单章预估展示，或文案改「单章预估 X」。",
+      "location": "src/pages/StudioPage.tsx:350"
+    },
+    {
+      "category": "accessibility",
+      "severity": "major",
+      "description": "章目录行从旧版 <button> 退化为 div+onClick：失去 Tab 焦点顺序与 Enter 触发，对键盘流写作者是重构回归。",
+      "suggestion": "改回 <button>（样式可覆盖），或 role=button + tabIndex=0 + onKeyDown Enter/Space。",
+      "location": "src/components/workbench/ChapterSidebar.tsx .wsb-item"
+    },
+    {
+      "category": "components",
+      "severity": "minor",
+      "description": "空对话时右栏同时出现三处建议/引导：legacy .studio-quick 原生 chips（4个）+ WorkbenchComposer antd suggestion chips + 说明列表，文案近重复，同元素双实现。",
+      "suggestion": "删除 .studio-quick 块，建议入口统一收敛到 WorkbenchComposer。",
+      "location": "src/pages/studio/StudioAgentPanel.tsx:183-286 vs :328-341"
+    },
+    {
+      "category": "copy",
+      "severity": "minor",
+      "description": "「写入编辑器」按钮存在两分支同文的死三元 {doc.trim() ? '写入编辑器' : '写入编辑器'}。",
+      "suggestion": "收敛为单字符串，或按原意区分覆盖/插入文案。",
+      "location": "src/pages/studio/StudioAgentPanel.tsx:311"
+    },
+    {
+      "category": "feedback",
+      "severity": "minor",
+      "description": "缺料灯整条 Tag cursor:pointer 但只有内嵌小按钮「就地补」有 onClick，点 Tag 本体无响应，affordance 与行为不符。",
+      "suggestion": "给 Tag 加 onClick 触发 onRepair，或去掉 pointer 暗示。",
+      "location": "src/components/workbench/MaterialStatusBar.tsx:62-78"
+    },
+    {
+      "category": "flow-continuity",
+      "severity": "minor",
+      "description": "进度胶囊点击与注释头「点 Chip → 展开 QueuePanel」不符：实际只 setHint 一行提示，且同一点击同时弹 Popover，双反馈互抢。",
+      "suggestion": "去掉 onOpen hint（面板本就内联右栏），或改为滚动/展开到面板。",
+      "location": "src/pages/StudioPage.tsx:325 + src/components/workbench/QueueProgressChip.tsx:60-64"
+    },
+    {
+      "category": "edge-states",
+      "severity": "minor",
+      "description": "建议 chips 直接以 60+ 字完整 prompt 作为按钮文案，窄栏下整块换行压挤输入区（极端数据态未处理）。",
+      "suggestion": "chip 显示截断短标签 + title 全文，点击仍发送完整 prompt。",
+      "location": "src/components/workbench/WorkbenchComposer.tsx:96-100"
+    },
+    {
+      "category": "brief-consistency",
+      "severity": "minor",
+      "description": "空卷「生成第 N 卷细纲」实现为跳细纲页（setVolumeId+nav），非 PRD S2 就地 0 跳页；flow-web.json 已诚实记为 deviation，此处登记残余跳页。",
+      "suggestion": "复用 doRepair 的 gen-beats 通道就地生成。",
+      "location": "src/pages/AppLayout.tsx onGenerateVolumeBeats"
+    },
+    {
+      "category": "accessibility",
+      "severity": "minor",
+      "description": "侧栏状态点仅靠颜色区分（done/draft/queued 同形异色），色觉异常用户仅凭 dot 不可分；title/aria 仅 hover/读屏可见。",
+      "suggestion": "dot 加形状差异（✓/空心/数字）或随行文字徽标。",
+      "location": "src/components/workbench/ChapterSidebar.tsx .wsb-dot"
+    }
+  ],
+  "summary": {
+    "blocker": 1,
+    "major": 6,
+    "minor": 7,
+    "pass": 3
+  }
+}

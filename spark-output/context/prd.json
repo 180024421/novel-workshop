@@ -1,0 +1,50 @@
+{
+  "skill": "prd",
+  "generated_at": "2026-09-22T00:00:00+08:00",
+  "project_name": "大帅墨枢",
+  "direction": "ux-fluidity",
+  "prd_file": "spark-output/prd/ux-fluidity.md",
+  "sections_summary": {
+    "summary": "把墨枢日更主循环从 15 次点击+4 次切页+2 次弹窗压到 ≤2 击 0 跳页 0 阻断，并修掉换章丢字/Ctrl+Enter 失效/章目录 stale 三个可靠性缺陷。",
+    "primary_persona": "大帅（独立网文作者 = 产品作者本人，Windows 日更 dogfooding）",
+    "product_goal": "日更主循环 ≤2 次点击、0 次跳页、0 次阻断弹窗、0 丢字。",
+    "success_metrics": [
+      { "metric": "主循环点击数", "target": "≤2", "timeframe": "发布即测" },
+      { "metric": "「请先…」阻断次数/每章", "target": "0", "timeframe": "发布即测" },
+      { "metric": "丢字事件", "target": "0/周", "timeframe": "30 天" },
+      { "metric": "批量队列无人工介入完成率", "target": "≥90%", "timeframe": "30 天" }
+    ],
+    "feature_count": 8,
+    "in_scope_features": [
+      "S3 autosave flush + Ctrl+Enter + 章目录刷新 (P0)",
+      "S1 拆写作循环硬门槛·就地补料 (P0⭐)",
+      "S2 自动续章队列 + 双确认合并 (P0)",
+      "S5 导航重组·折叠不再自动收起 (P1)",
+      "S6 摘要/钩子一键补齐·死路清障 (P1)",
+      "S7 弹窗合并 + EmptyGuide 统一 (P1)",
+      "S4 设置页搜索 (P2)",
+      "S8 开书路径合并 + 命令面板 spike (P2)"
+    ],
+    "out_of_scope_features": [
+      "AppContext 性能重构（backlog）",
+      "IPC 安全加固 / safeStorage / 授权协议防重放（backlog）",
+      "AI 生成质量迭代",
+      "undo/redo 系统",
+      "无人值守夜跑全卷"
+    ],
+    "critical_assumption": "「操作不方便」的根因是页面割裂+人工串联而非功能缺失（已获用户多选确认，S1 发布后一周跳页次数为最终验证）。",
+    "mvp_stories": ["S3", "S1", "S2"]
+  },
+  "source_skills": {
+    "brief": false,
+    "stories": false,
+    "sitemap": false,
+    "flow_web": false,
+    "flow_mobile": false,
+    "frame": false,
+    "scope": false,
+    "check": false
+  },
+  "evidence_source": "2026-09-22 代码级操作走查（src/ 渲染层）+ 用户痛点多选确认",
+  "thin_sections": ["personas", "value_proposition", "design_assets"]
+}

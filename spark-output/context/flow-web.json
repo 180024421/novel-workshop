@@ -1,0 +1,141 @@
+{
+  "skill": "flow-web",
+  "generated_at": "2026-09-22T14:36:03.222Z",
+  "project_name": "大帅墨枢",
+  "scenario": "AI Product",
+  "component_library": "Ant Design",
+  "integration_mode": "直接改主工程（无 scaffold、无 mock，组件全部接真实 AppContext/useStudioDocument/useStudioGenerate）",
+  "tech_stack": {
+    "framework": "React 19 + Vite + Electron",
+    "ui": "antd@6.6.5 + @ant-design/icons@6.3.4",
+    "theme": "src/theme/moshuAntdTheme.ts（darkAlgorithm，colorPrimary #d4a574）",
+    "rules": [
+      "禁引 antd/dist/reset.css",
+      "Modal/notification 经 AntdApp.useApp()",
+      "颜色走 CSS 变量 + token"
+    ]
+  },
+  "flows": [
+    {
+      "name": "写作主循环工作台（Flow A）",
+      "screens": [
+        {
+          "name": "物料状态条",
+          "file_path": "src/components/workbench/MaterialStatusBar.tsx"
+        },
+        {
+          "name": "缺料就地补",
+          "file_path": "src/components/workbench/InlineRepairCard.tsx"
+        },
+        {
+          "name": "生成中 Composer",
+          "file_path": "src/components/workbench/WorkbenchComposer.tsx"
+        },
+        {
+          "name": "完成态/下一步",
+          "file_path": "src/components/workbench/WorkbenchComposer.tsx"
+        }
+      ],
+      "logic": [
+        "src/components/workbench/materialLamps.ts"
+      ],
+      "wiring": [
+        "src/pages/StudioPage.tsx",
+        "src/pages/studio/StudioAgentPanel.tsx",
+        "src/pages/studio/useStudioGenerate.ts(doRepair)"
+      ]
+    },
+    {
+      "name": "章目录侧栏（Flow B）",
+      "screens": [
+        {
+          "name": "章列表（卷分组+角标）",
+          "file_path": "src/components/workbench/ChapterSidebar.tsx"
+        },
+        {
+          "name": "hover ··· 菜单",
+          "file_path": "src/components/workbench/ChapterSidebar.tsx"
+        },
+        {
+          "name": "内联改名",
+          "file_path": "src/components/workbench/InlineRenameItem.tsx"
+        }
+      ],
+      "logic": [
+        "src/components/workbench/chapterOps.ts"
+      ],
+      "wiring": [
+        "src/pages/AppLayout.tsx(替换 chapter-nav + CHAPTERS_DIRTY_EVENT 防抖刷新 + jumpChapter 前 flush 保存)"
+      ]
+    },
+    {
+      "name": "自动续章队列（Flow C）",
+      "screens": [
+        {
+          "name": "队列启动条",
+          "file_path": "src/components/workbench/QueueLaunchBar.tsx"
+        },
+        {
+          "name": "进度胶囊（常驻）",
+          "file_path": "src/components/workbench/QueueProgressChip.tsx"
+        },
+        {
+          "name": "运行/介入/汇总面板",
+          "file_path": "src/components/workbench/QueuePanel.tsx"
+        }
+      ],
+      "logic": [
+        "src/components/workbench/queueLogic.ts"
+      ],
+      "wiring": [
+        "src/pages/studio/useStudioGenerate.ts(startQueue/queueAction/runQueue 接线)"
+      ]
+    },
+    {
+      "name": "确认弹窗合并（Flow D）",
+      "screens": [
+        {
+          "name": "预检主按钮（零弹窗路径）",
+          "file_path": "src/components/workbench/PreflightButton.tsx"
+        },
+        {
+          "name": "额度阻断对话框",
+          "file_path": "src/components/workbench/QuotaGateDialog.tsx"
+        }
+      ],
+      "logic": [
+        "src/components/workbench/preflight.ts"
+      ],
+      "wiring": [
+        "src/pages/studio/StudioAgentPanel.tsx(generateSlot)"
+      ]
+    }
+  ],
+  "tests": "workbench 纯逻辑 30 用例（chapterOps 7 / queueLogic 13 / preflight 6 / materialLamps 4）",
+  "deviations": [
+    "骨架中的 ChapterTools.tsx 改造锚点改为 StudioAgentPanel 主生成按钮（PreflightButton）",
+    "0 章卷「生成本卷细纲」不就地跑 LLM，改为选卷跳细纲页（两段式生成依赖细纲页上下文）",
+    "无每日成本预算概念：license.ok → 剩余=不限，预检恒过（零弹窗即 Screen 1 承诺）",
+    "覆盖确认未合并进预检（破坏性操作才配阻断弹窗）",
+    "侧栏 queued/generating 角标 stateOverrides 暂未接线（队列状态在 StudioPage 层）"
+  ],
+  "output_files": [
+    "src/components/workbench/types.ts",
+    "src/components/workbench/materialLamps.ts",
+    "src/components/workbench/MaterialStatusBar.tsx",
+    "src/components/workbench/InlineRepairCard.tsx",
+    "src/components/workbench/WorkbenchComposer.tsx",
+    "src/components/workbench/chapterOps.ts",
+    "src/components/workbench/ChapterSidebar.tsx",
+    "src/components/workbench/ChapterSidebar.css",
+    "src/components/workbench/InlineRenameItem.tsx",
+    "src/components/workbench/queueLogic.ts",
+    "src/components/workbench/QueueLaunchBar.tsx",
+    "src/components/workbench/QueueProgressChip.tsx",
+    "src/components/workbench/QueuePanel.tsx",
+    "src/components/workbench/QueuePanel.css",
+    "src/components/workbench/preflight.ts",
+    "src/components/workbench/PreflightButton.tsx",
+    "src/components/workbench/QuotaGateDialog.tsx"
+  ]
+}
